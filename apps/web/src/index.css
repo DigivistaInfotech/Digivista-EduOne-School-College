@@ -1,0 +1,215 @@
+@import 'tailwindcss';
+
+/*
+  Asterleaf Campus · DigiVista Education Suite
+  Identity & Visual System Specification (Page 2):
+  - Midnight: #182944 (Navy navigation & deep brand text)
+  - Lagoon:   #087F83 (Teal primary actions, buttons & highlights)
+  - Mint:     #DDF4EC (Mint success, stat card 1 & status tint)
+  - Amber:    #F6B84B (Amber review, warnings & pending badges)
+  - Orchid:   #7654C7 (Orchid learning, assessments & purple accents)
+  - Page:     #F3F6FA (Page canvas, crisp light neutral background)
+
+  Layout:
+  - 8px spacing
+  - 16px corners (rounded-2xl)
+  - 44px minimum touch targets
+  - Status always includes text/icon, never colour alone
+*/
+
+@theme {
+  --font-sans:
+    'Plus Jakarta Sans', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-display:
+    'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  /* Asterleaf Core Brand Colors */
+  --color-midnight: #182944;
+  --color-lagoon: #087F83;
+  --color-mint: #DDF4EC;
+  --color-amber: #F6B84B;
+  --color-orchid: #7654C7;
+  --color-page: #F3F6FA;
+
+  /* Brand Teal/Lagoon scales */
+  --color-brand-50: #f0fdfa;
+  --color-brand-100: #ccfbf1;
+  --color-brand-200: #99f6e4;
+  --color-brand-300: #5eead4;
+  --color-brand-400: #2dd4bf;
+  --color-brand-500: #087F83;
+  --color-brand-600: #066669;
+  --color-brand-700: #055356;
+  --color-brand-800: #044245;
+  --color-brand-900: #182944;
+
+  /* Neutrals */
+  --color-slate-50: #F3F6FA;
+  --color-slate-100: #eef2f6;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #182944;
+  --color-slate-950: #0f172a;
+
+  /* Compatibility aliases */
+  --color-coral: #087F83;
+  --color-sun: #F6B84B;
+  --color-ink: #182944;
+  --color-cream: #F3F6FA;
+  --color-sky: #0284c7;
+  --color-grape: #7654C7;
+  --color-bubble: #ec4899;
+
+  --animate-marquee: marquee 35s linear infinite;
+  --animate-pop: pop 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  @keyframes marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: #F3F6FA;
+    color: #182944;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid #087F83;
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: #DDF4EC;
+    color: #087F83;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* 44px min touch target inputs */
+  .field-input {
+    @apply block w-full rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-[#182944] transition placeholder:text-slate-400 hover:border-[#087F83]/50 focus:border-[#087F83] focus:ring-2 focus:ring-[#087F83]/20 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 min-h-[44px];
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-xs font-bold tracking-wide uppercase text-slate-700;
+  }
+
+  .field-hint {
+    @apply mt-1 text-xs text-slate-500;
+  }
+
+  .field-error {
+    @apply mt-1 text-xs font-semibold text-rose-600 flex items-center gap-1;
+  }
+
+  .data-table {
+    @apply w-full border-collapse text-left text-sm;
+  }
+
+  .data-table thead th {
+    @apply border-b border-slate-200 bg-slate-50/80 px-4 py-3 text-xs font-bold tracking-wider text-slate-700 uppercase;
+  }
+
+  .data-table tbody td {
+    @apply border-b border-slate-100 px-4 py-3.5 align-middle text-slate-700;
+  }
+
+  .data-table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+
+  .data-table tbody tr {
+    @apply transition-colors;
+  }
+
+  .data-table tbody tr:hover {
+    background-color: #f8fafc;
+  }
+
+  /* 16px corner cards */
+  .sticker,
+  .asterleaf-card {
+    @apply rounded-2xl border border-slate-200/80 bg-white shadow-xs transition;
+  }
+
+  .asterleaf-panel {
+    @apply rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs;
+  }
+
+  .asterleaf-bar {
+    height: 4px;
+    background: linear-gradient(
+      90deg,
+      #182944 0%,
+      #087F83 40%,
+      #DDF4EC 70%,
+      #7654C7 100%
+    );
+  }
+
+  .rainbow-bar {
+    height: 3px;
+    background: linear-gradient(
+      90deg,
+      #087F83 0%,
+      #DDF4EC 40%,
+      #F6B84B 75%,
+      #7654C7 100%
+    );
+  }
+
+  .accent {
+    font-weight: 700;
+    color: #087F83;
+  }
+
+  .accent-plain {
+    font-weight: 700;
+  }
+
+  .scroll-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb {
+    background: rgba(24, 41, 68, 0.2);
+    border-radius: 999px;
+  }
+}

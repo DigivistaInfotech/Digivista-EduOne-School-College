@@ -1,0 +1,22 @@
+{
+  "name": "@erp/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./permissions": "./src/permissions.ts",
+    "./types": "./src/types.ts",
+    "./modules": "./src/modules.ts",
+    "./regional": "./src/regional.ts",
+    "./student-stage": "./src/studentStage.ts",
+    "./procurement-catalog": "./src/procurementCatalog.ts",
+    "./library-identity": "./src/libraryIdentity.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.1.0"
+  }
+}
