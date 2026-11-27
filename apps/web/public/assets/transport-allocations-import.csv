@@ -1,0 +1,2 @@
+admission_number,route_code,stop_sequence,effective_from,valid_until,reminder_days,payment_reference
+DS-2627-0001,ROUTE-01,1,2026-07-01,,60,

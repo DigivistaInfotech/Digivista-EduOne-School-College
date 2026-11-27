@@ -286,12 +286,14 @@ export function Badge({
 export function Card({
   children,
   className,
+  id,
 }: {
   children: ReactNode;
   className?: string;
+  id?: string;
 }): ReactNode {
   return (
-    <div className={cn('asterleaf-card p-5', className)}>
+    <div id={id} className={cn('asterleaf-card p-5', className)}>
       {children}
     </div>
   );

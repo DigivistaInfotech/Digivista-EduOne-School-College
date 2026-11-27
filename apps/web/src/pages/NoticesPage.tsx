@@ -1,7 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRef, useState, type FormEvent, type ReactNode } from 'react';
-import type { NoticeRecord } from '@erp/shared';
-import { useAuth, useSchoolId, useSchoolTimezone } from '../auth/AuthContext';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import type { NoticeRecord } from "@erp/shared";
+import { useAuth, useSchoolId, useSchoolTimezone } from "../auth/AuthContext";
 import {
   createNotice,
   deleteNotice,
@@ -11,11 +11,11 @@ import {
   noticeAttachmentUrl,
   updateNotice,
   uploadNoticeAttachment,
-} from '../lib/endpoints';
-import { errorMessage, fieldErrors } from '../lib/api';
-import { formatBytes, formatDate, formatDateTime } from '../lib/format';
-import { ConfirmDialog, Dialog } from '../components/Dialog';
-import { useToast } from '../components/ToastProvider';
+} from "../lib/endpoints";
+import { errorMessage, fieldErrors } from "../lib/api";
+import { formatBytes, formatDate, formatDateTime } from "../lib/format";
+import { ConfirmDialog, Dialog } from "../components/Dialog";
+import { useToast } from "../components/ToastProvider";
 import {
   Alert,
   Badge,
@@ -31,96 +31,144 @@ import {
   TableSkeleton,
   Textarea,
   cn,
-} from '../components/ui';
+} from "../components/ui";
 
-const AUDIENCES = ['all', 'staff', 'parents', 'students'] as const;
-const STATUSES = ['draft', 'published', 'archived'] as const;
+const AUDIENCES = ["all", "staff", "parents", "students"] as const;
+const STATUSES = ["draft", "published", "archived"] as const;
+const NOTICE_CATEGORIES: Array<[NoticeRecord["category"], string]> = [
+  ["general", "General"],
+  ["academic", "Academic"],
+  ["examination", "Examination"],
+  ["holiday", "Holiday"],
+  ["fee", "Fee"],
+  ["attendance", "Attendance"],
+  ["parent_meeting", "Parent meeting"],
+  ["school_event", "School event"],
+  ["competition", "Competition"],
+  ["admission", "Admission"],
+  ["transport", "Transport"],
+  ["library", "Library"],
+  ["health_safety", "Health & safety"],
+  ["achievement", "Achievement"],
+  ["staff", "Staff"],
+  ["emergency", "Emergency"],
+];
+const NOTICE_PRIORITIES: Array<[NoticeRecord["priority"], string]> = [
+  ["low", "Low"],
+  ["normal", "Normal"],
+  ["high", "High"],
+  ["urgent", "Urgent"],
+];
 
-type Tab = 'published' | 'draft' | 'archived' | 'all';
-type DialogState = { kind: 'notice'; notice?: NoticeRecord } | null;
+type Tab = "published" | "draft" | "archived" | "all";
+type DialogState = { kind: "notice"; notice?: NoticeRecord } | null;
 type ConfirmTarget =
-  | { kind: 'delete'; notice: NoticeRecord }
-  | { kind: 'publish'; notice: NoticeRecord }
-  | { kind: 'archive'; notice: NoticeRecord }
-  | { kind: 'unpublish'; notice: NoticeRecord }
+  | { kind: "delete"; notice: NoticeRecord }
+  | { kind: "publish"; notice: NoticeRecord }
+  | { kind: "archive"; notice: NoticeRecord }
+  | { kind: "unpublish"; notice: NoticeRecord }
   | null;
 
 export function NoticesPage(): ReactNode {
   const schoolId = useSchoolId();
   const timeZone = useSchoolTimezone();
-  const { can } = useAuth();
+  const { can, membership } = useAuth();
   const toast = useToast();
   const queryClient = useQueryClient();
-  const canManage = can('notices.manage');
+  const canManage = can("notices.manage");
 
-  const [tab, setTab] = useState<Tab>(canManage ? 'published' : 'all');
+  const [tab, setTab] = useState<Tab>(canManage ? "published" : "all");
   const [dialog, setDialog] = useState<DialogState>(null);
   const [confirming, setConfirming] = useState<ConfirmTarget>(null);
 
-  const status = tab === 'all' ? undefined : tab;
+  const status = tab === "all" ? undefined : tab;
   const notices = useQuery({
-    queryKey: ['notices', schoolId, status ?? 'all'],
+    queryKey: ["notices", schoolId, status ?? "all"],
     queryFn: () => listNotices(schoolId, status),
   });
 
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ['notices', schoolId] });
+    void queryClient.invalidateQueries({ queryKey: ["notices", schoolId] });
   };
 
   const markRead = useMutation({
     mutationFn: (noticeId: string) => markNoticeRead(schoolId, noticeId),
     onSuccess: invalidate,
-    onError: (error) => toast.notify('error', errorMessage(error)),
+    onError: (error) => toast.notify("error", errorMessage(error)),
   });
 
   const lifecycle = useMutation({
     mutationFn: async (target: NonNullable<ConfirmTarget>) => {
-      if (target.kind === 'delete') await deleteNotice(schoolId, target.notice.id);
-      else if (target.kind === 'publish') {
-        await updateNotice(schoolId, target.notice.id, { status: 'published' });
-      } else if (target.kind === 'archive') {
-        await updateNotice(schoolId, target.notice.id, { status: 'archived' });
+      if (target.kind === "delete")
+        await deleteNotice(schoolId, target.notice.id);
+      else if (target.kind === "publish") {
+        await updateNotice(schoolId, target.notice.id, { status: "published" });
+      } else if (target.kind === "archive") {
+        await updateNotice(schoolId, target.notice.id, { status: "archived" });
       } else {
-        await updateNotice(schoolId, target.notice.id, { status: 'draft' });
+        await updateNotice(schoolId, target.notice.id, { status: "draft" });
       }
     },
     onSuccess: (_result, target) => {
-      toast.notify('success', lifecycleMessage(target.kind));
+      toast.notify("success", lifecycleMessage(target.kind));
+      if (target.kind === "publish") setTab("published");
+      else if (target.kind === "archive") setTab("archived");
+      else if (target.kind === "unpublish") setTab("draft");
       setConfirming(null);
       invalidate();
     },
     onError: (error) => {
       setConfirming(null);
-      toast.notify('error', errorMessage(error));
+      toast.notify("error", errorMessage(error));
     },
   });
 
   const tabs: Array<[Tab, string]> = canManage
     ? [
-        ['published', 'Published'],
-        ['draft', 'Drafts'],
-        ['archived', 'Archived'],
-        ['all', 'All'],
+        ["published", "Published"],
+        ["draft", "Drafts"],
+        ["archived", "Archived"],
+        ["all", "All"],
       ]
-    : [['all', 'Notices']];
+    : [["all", "Notices"]];
 
   return (
-    <div className="space-y-6">
+    <div className="print-surface space-y-6">
       <PageHeader
         title="Notice board"
         description="Audience-scoped announcements. Drafts are only visible to people who manage notices; parents and students only ever see published, unexpired notices addressed to them."
         actions={
-          canManage ? (
-            <Button onClick={() => setDialog({ kind: 'notice' })}>
-              <Icon name="plus" className="h-4 w-4" />
-              New notice
+          <div className="print-hide flex gap-2">
+            <Button variant="secondary" onClick={() => window.print()}>
+              Print notice report
             </Button>
-          ) : undefined
+            {canManage && (
+              <Button onClick={() => setDialog({ kind: "notice" })}>
+                <Icon name="plus" className="h-4 w-4" />
+                New notice
+              </Button>
+            )}
+          </div>
         }
       />
 
+      <div className="print-only mb-5 hidden border-b border-slate-300 pb-3">
+        <p className="text-xl font-bold">
+          {membership?.schoolName ?? "School"}
+        </p>
+        <p className="text-sm">
+          Notice report ·{" "}
+          {tab === "all" ? "All visible notices" : `${tab} notices`} ·{" "}
+          {formatDate(new Date().toISOString())}
+        </p>
+      </div>
+
       {canManage && (
-        <div className="flex gap-1 border-b border-slate-200" role="tablist" aria-label="Notice status">
+        <div
+          className="print-hide flex gap-1 border-b border-slate-200"
+          role="tablist"
+          aria-label="Notice status"
+        >
           {tabs.map(([value, label]) => (
             <button
               key={value}
@@ -129,10 +177,10 @@ export function NoticesPage(): ReactNode {
               aria-selected={tab === value}
               onClick={() => setTab(value)}
               className={cn(
-                'border-b-2 px-3 py-2 text-sm font-medium transition',
+                "border-b-2 px-3 py-2 text-sm font-medium transition",
                 tab === value
-                  ? 'border-brand-600 text-brand-700'
-                  : 'border-transparent text-slate-500 hover:text-slate-800',
+                  ? "border-brand-600 text-brand-700"
+                  : "border-transparent text-slate-500 hover:text-slate-800",
               )}
             >
               {label}
@@ -147,21 +195,24 @@ export function NoticesPage(): ReactNode {
         </Card>
       ) : notices.isError ? (
         <Card>
-          <ErrorState message={errorMessage(notices.error)} onRetry={() => void notices.refetch()} />
+          <ErrorState
+            message={errorMessage(notices.error)}
+            onRetry={() => void notices.refetch()}
+          />
         </Card>
       ) : notices.data.items.length === 0 ? (
         <Card>
           <EmptyState
-            title={tab === 'all' ? 'No notices published' : `No ${tab} notices`}
+            title={tab === "all" ? "No notices published" : `No ${tab} notices`}
             description={
               canManage
-                ? 'Write a notice and publish it to the selected audience.'
-                : 'Nothing has been posted for you yet.'
+                ? "Write a notice and publish it to the selected audience."
+                : "Nothing has been posted for you yet."
             }
             icon="clipboard"
             action={
               canManage ? (
-                <Button size="sm" onClick={() => setDialog({ kind: 'notice' })}>
+                <Button size="sm" onClick={() => setDialog({ kind: "notice" })}>
                   New notice
                 </Button>
               ) : undefined
@@ -176,18 +227,38 @@ export function NoticesPage(): ReactNode {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     {notice.pinned && <Badge tone="brand">Pinned</Badge>}
-                    <h2 className="text-base font-semibold text-slate-900">{notice.title}</h2>
-                    <Badge tone={notice.audience === 'all' ? 'info' : 'neutral'}>
+                    <h2 className="text-base font-semibold text-slate-900">
+                      {notice.title}
+                    </h2>
+                    <Badge
+                      tone={notice.audience === "all" ? "info" : "neutral"}
+                    >
                       {notice.audience}
+                    </Badge>
+                    <Badge tone="neutral">
+                      {NOTICE_CATEGORIES.find(
+                        ([value]) => value === notice.category,
+                      )?.[1] ?? "General"}
+                    </Badge>
+                    <Badge
+                      tone={
+                        notice.priority === "urgent"
+                          ? "danger"
+                          : notice.priority === "high"
+                            ? "warning"
+                            : "neutral"
+                      }
+                    >
+                      {notice.priority}
                     </Badge>
                     {canManage && (
                       <Badge
                         tone={
-                          notice.status === 'published'
-                            ? 'success'
-                            : notice.status === 'archived'
-                              ? 'neutral'
-                              : 'warning'
+                          notice.status === "published"
+                            ? "success"
+                            : notice.status === "archived"
+                              ? "neutral"
+                              : "warning"
                         }
                       >
                         {notice.status}
@@ -198,43 +269,60 @@ export function NoticesPage(): ReactNode {
                     {notice.publishedAt
                       ? `Published ${formatDateTime(notice.publishedAt, timeZone)}`
                       : `Created ${formatDateTime(notice.createdAt, timeZone)}`}
-                    {notice.createdByName && ` Â· ${notice.createdByName}`}
-                    {notice.expiresOn && ` Â· Expires ${formatDate(notice.expiresOn)}`}
+                    {notice.createdByName && ` · ${notice.createdByName}`}
+                    {notice.expiresOn &&
+                      ` · Expires ${formatDate(notice.expiresOn)}`}
                   </p>
                 </div>
                 {canManage && (
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => setDialog({ kind: 'notice', notice })}>
+                  <div className="print-hide flex flex-wrap justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setDialog({ kind: "notice", notice })}
+                    >
                       Edit
                     </Button>
-                    {notice.status !== 'published' && (
-                      <Button size="sm" onClick={() => setConfirming({ kind: 'publish', notice })}>
+                    {notice.status !== "published" && (
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          setConfirming({ kind: "publish", notice })
+                        }
+                      >
                         Publish
                       </Button>
                     )}
-                    {notice.status === 'published' && (
+                    {notice.status === "published" && (
                       <>
                         <Button
                           size="sm"
                           variant="secondary"
-                          onClick={() => setConfirming({ kind: 'unpublish', notice })}
+                          onClick={() =>
+                            setConfirming({ kind: "unpublish", notice })
+                          }
                         >
                           Unpublish
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => setConfirming({ kind: 'archive', notice })}
+                          onClick={() =>
+                            setConfirming({ kind: "archive", notice })
+                          }
                         >
                           Archive
                         </Button>
                       </>
                     )}
-                    {notice.status !== 'published' && (
+                    {notice.status !== "published" && (
                       <Button
+                        className="print-hide"
                         size="sm"
                         variant="ghost"
-                        onClick={() => setConfirming({ kind: 'delete', notice })}
+                        onClick={() =>
+                          setConfirming({ kind: "delete", notice })
+                        }
                       >
                         Delete
                       </Button>
@@ -242,19 +330,30 @@ export function NoticesPage(): ReactNode {
                   </div>
                 )}
               </div>
-              <p className="mt-3 whitespace-pre-line text-sm text-slate-700">{notice.body}</p>
+              <p className="mt-3 whitespace-pre-line text-sm text-slate-700">
+                {notice.body}
+              </p>
               {notice.attachments.length > 0 && (
-                <ul className="mt-3 flex flex-wrap gap-2" aria-label="Attachments">
+                <ul
+                  className="mt-3 flex flex-wrap gap-2"
+                  aria-label="Attachments"
+                >
                   {notice.attachments.map((attachment) => (
                     <li key={attachment.id}>
                       <a
-                        href={noticeAttachmentUrl(schoolId, notice.id, attachment.id)}
+                        href={noticeAttachmentUrl(
+                          schoolId,
+                          notice.id,
+                          attachment.id,
+                        )}
                         className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-brand-700 hover:border-brand-300"
                         download={attachment.filename}
                       >
                         <Icon name="download" className="h-3.5 w-3.5" />
                         {attachment.filename}
-                        <span className="text-slate-400">{formatBytes(attachment.byteSize)}</span>
+                        <span className="text-slate-400">
+                          {formatBytes(attachment.byteSize)}
+                        </span>
                       </a>
                     </li>
                   ))}
@@ -263,7 +362,8 @@ export function NoticesPage(): ReactNode {
               <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
                 {canManage && notice.readCount !== null && (
                   <span>
-                    Read by {notice.readCount} {notice.readCount === 1 ? 'person' : 'people'}
+                    Read by {notice.readCount}{" "}
+                    {notice.readCount === 1 ? "person" : "people"}
                   </span>
                 )}
                 {!canManage &&
@@ -271,9 +371,12 @@ export function NoticesPage(): ReactNode {
                     <Badge tone="success">Read</Badge>
                   ) : (
                     <Button
+                      className="print-hide"
                       size="sm"
                       variant="secondary"
-                      loading={markRead.isPending && markRead.variables === notice.id}
+                      loading={
+                        markRead.isPending && markRead.variables === notice.id
+                      }
                       onClick={() => markRead.mutate(notice.id)}
                     >
                       Mark as read
@@ -285,14 +388,16 @@ export function NoticesPage(): ReactNode {
         </div>
       )}
 
-      {dialog?.kind === 'notice' && (
+      {dialog?.kind === "notice" && (
         <NoticeDialog
           notice={dialog.notice}
           onClose={() => setDialog(null)}
           onSaved={() => {
             toast.notify(
-              'success',
-              dialog.notice ? 'Notice updated.' : 'Draft created. Publish it when ready.',
+              "success",
+              dialog.notice
+                ? "Notice updated."
+                : "Draft created. Publish it when ready.",
             );
             setDialog(null);
             invalidate();
@@ -303,17 +408,19 @@ export function NoticesPage(): ReactNode {
       <ConfirmDialog
         open={confirming !== null}
         title={
-          confirming?.kind === 'delete'
-            ? 'Delete notice'
-            : confirming?.kind === 'publish'
-              ? 'Publish notice'
-              : confirming?.kind === 'archive'
-                ? 'Archive notice'
-                : 'Unpublish notice'
+          confirming?.kind === "delete"
+            ? "Delete notice"
+            : confirming?.kind === "publish"
+              ? "Publish notice"
+              : confirming?.kind === "archive"
+                ? "Archive notice"
+                : "Unpublish notice"
         }
         message={confirming ? confirmMessage(confirming) : null}
-        confirmLabel={confirming ? lifecycleLabel(confirming.kind) : 'Confirm'}
-        destructive={confirming?.kind === 'delete' || confirming?.kind === 'unpublish'}
+        confirmLabel={confirming ? lifecycleLabel(confirming.kind) : "Confirm"}
+        destructive={
+          confirming?.kind === "delete" || confirming?.kind === "unpublish"
+        }
         busy={lifecycle.isPending}
         onConfirm={() => confirming && lifecycle.mutate(confirming)}
         onClose={() => setConfirming(null)}
@@ -322,49 +429,50 @@ export function NoticesPage(): ReactNode {
   );
 }
 
-function lifecycleMessage(kind: NonNullable<ConfirmTarget>['kind']): string {
-  if (kind === 'publish') return 'Notice published.';
-  if (kind === 'archive') return 'Notice archived.';
-  if (kind === 'unpublish') return 'Notice returned to draft.';
-  return 'Notice deleted.';
+function lifecycleMessage(kind: NonNullable<ConfirmTarget>["kind"]): string {
+  if (kind === "publish") return "Notice published.";
+  if (kind === "archive") return "Notice archived.";
+  if (kind === "unpublish") return "Notice returned to draft.";
+  return "Notice deleted.";
 }
 
-function lifecycleLabel(kind: NonNullable<ConfirmTarget>['kind']): string {
-  if (kind === 'publish') return 'Publish';
-  if (kind === 'archive') return 'Archive';
-  if (kind === 'unpublish') return 'Unpublish';
-  return 'Delete';
+function lifecycleLabel(kind: NonNullable<ConfirmTarget>["kind"]): string {
+  if (kind === "publish") return "Publish";
+  if (kind === "archive") return "Archive";
+  if (kind === "unpublish") return "Unpublish";
+  return "Delete";
 }
 
 function confirmMessage(target: NonNullable<ConfirmTarget>): ReactNode {
-  if (target.kind === 'delete') {
+  if (target.kind === "delete") {
     return (
       <p>
-        Delete <strong>{target.notice.title}</strong>? Drafts and archived notices can be deleted;
-        published notices must be archived first.
+        Delete <strong>{target.notice.title}</strong>? Drafts and archived
+        notices can be deleted; published notices must be archived first.
       </p>
     );
   }
-  if (target.kind === 'publish') {
+  if (target.kind === "publish") {
     return (
       <p>
-        Publish <strong>{target.notice.title}</strong> to <strong>{target.notice.audience}</strong>?
-        It becomes visible immediately.
+        Publish <strong>{target.notice.title}</strong> to{" "}
+        <strong>{target.notice.audience}</strong>? It becomes visible
+        immediately.
       </p>
     );
   }
-  if (target.kind === 'archive') {
+  if (target.kind === "archive") {
     return (
       <p>
-        Archive <strong>{target.notice.title}</strong>? It disappears from audience feeds but stays
-        available to managers.
+        Archive <strong>{target.notice.title}</strong>? It disappears from
+        audience feeds but stays available to managers.
       </p>
     );
   }
   return (
     <p>
-      Move <strong>{target.notice.title}</strong> back to draft? It will no longer be visible to its
-      audience.
+      Move <strong>{target.notice.title}</strong> back to draft? It will no
+      longer be visible to its audience.
     </p>
   );
 }
@@ -379,12 +487,22 @@ function NoticeDialog({
   onSaved: () => void;
 }): ReactNode {
   const schoolId = useSchoolId();
-  const [title, setTitle] = useState(notice?.title ?? '');
-  const [body, setBody] = useState(notice?.body ?? '');
-  const [audience, setAudience] = useState<NoticeRecord['audience']>(notice?.audience ?? 'all');
+  const [title, setTitle] = useState(notice?.title ?? "");
+  const [body, setBody] = useState(notice?.body ?? "");
+  const [category, setCategory] = useState<NoticeRecord["category"]>(
+    notice?.category ?? "general",
+  );
+  const [priority, setPriority] = useState<NoticeRecord["priority"]>(
+    notice?.priority ?? "normal",
+  );
+  const [audience, setAudience] = useState<NoticeRecord["audience"]>(
+    notice?.audience ?? "all",
+  );
   const [pinned, setPinned] = useState(notice?.pinned ?? false);
-  const [expiresOn, setExpiresOn] = useState(notice?.expiresOn ?? '');
-  const [status, setStatus] = useState<NoticeRecord['status']>(notice?.status ?? 'draft');
+  const [expiresOn, setExpiresOn] = useState(notice?.expiresOn ?? "");
+  const [status, setStatus] = useState<NoticeRecord["status"]>(
+    notice?.status ?? "draft",
+  );
   const [error, setError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
 
@@ -393,6 +511,8 @@ function NoticeDialog({
       const payload = {
         title,
         body,
+        category,
+        priority,
         audience,
         pinned,
         expiresOn: expiresOn || null,
@@ -422,22 +542,31 @@ function NoticeDialog({
       open
       onClose={onClose}
       size="lg"
-      title={notice ? 'Edit notice' : 'New notice'}
+      title={notice ? "Edit notice" : "New notice"}
       description="New notices start as drafts. Publishing is a separate, audited action."
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} disabled={mutation.isPending}>
+          <Button
+            variant="secondary"
+            onClick={onClose}
+            disabled={mutation.isPending}
+          >
             Cancel
           </Button>
           <Button form="notice-form" type="submit" loading={mutation.isPending}>
-            {notice ? 'Save changes' : 'Save draft'}
+            {notice ? "Save changes" : "Save draft"}
           </Button>
         </>
       }
     >
       <form id="notice-form" className="space-y-4" onSubmit={submit} noValidate>
         {error && <Alert tone="danger">{error}</Alert>}
-        <Field label="Title" htmlFor="notice-title" required error={errors.title?.[0]}>
+        <Field
+          label="Title"
+          htmlFor="notice-title"
+          required
+          error={errors.title?.[0]}
+        >
           <Input
             id="notice-title"
             value={title}
@@ -446,7 +575,12 @@ function NoticeDialog({
             required
           />
         </Field>
-        <Field label="Notice text" htmlFor="notice-body" required error={errors.body?.[0]}>
+        <Field
+          label="Notice text"
+          htmlFor="notice-body"
+          required
+          error={errors.body?.[0]}
+        >
           <Textarea
             id="notice-body"
             rows={7}
@@ -456,12 +590,59 @@ function NoticeDialog({
             required
           />
         </Field>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Audience" htmlFor="notice-audience" required error={errors.audience?.[0]}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Category"
+            htmlFor="notice-category"
+            required
+            error={errors.category?.[0]}
+          >
+            <Select
+              id="notice-category"
+              value={category}
+              onChange={(event) =>
+                setCategory(event.target.value as NoticeRecord["category"])
+              }
+            >
+              {NOTICE_CATEGORIES.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field
+            label="Priority"
+            htmlFor="notice-priority"
+            required
+            error={errors.priority?.[0]}
+          >
+            <Select
+              id="notice-priority"
+              value={priority}
+              onChange={(event) =>
+                setPriority(event.target.value as NoticeRecord["priority"])
+              }
+            >
+              {NOTICE_PRIORITIES.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field
+            label="Audience"
+            htmlFor="notice-audience"
+            required
+            error={errors.audience?.[0]}
+          >
             <Select
               id="notice-audience"
               value={audience}
-              onChange={(event) => setAudience(event.target.value as NoticeRecord['audience'])}
+              onChange={(event) =>
+                setAudience(event.target.value as NoticeRecord["audience"])
+              }
             >
               {AUDIENCES.map((value) => (
                 <option key={value} value={value}>
@@ -470,7 +651,11 @@ function NoticeDialog({
               ))}
             </Select>
           </Field>
-          <Field label="Expires on" htmlFor="notice-expires" error={errors.expiresOn?.[0]}>
+          <Field
+            label="Expires on"
+            htmlFor="notice-expires"
+            error={errors.expiresOn?.[0]}
+          >
             <Input
               id="notice-expires"
               type="date"
@@ -483,7 +668,9 @@ function NoticeDialog({
               <Select
                 id="notice-status"
                 value={status}
-                onChange={(event) => setStatus(event.target.value as NoticeRecord['status'])}
+                onChange={(event) =>
+                  setStatus(event.target.value as NoticeRecord["status"])
+                }
               >
                 {STATUSES.map((value) => (
                   <option key={value} value={value}>
@@ -523,21 +710,22 @@ function NoticeAttachments({ notice }: { notice: NoticeRecord }): ReactNode {
   const [busy, setBusy] = useState(false);
 
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ['notices', schoolId] });
+    void queryClient.invalidateQueries({ queryKey: ["notices", schoolId] });
   };
 
   const remove = useMutation({
-    mutationFn: (attachmentId: string) => deleteNoticeAttachment(schoolId, notice.id, attachmentId),
+    mutationFn: (attachmentId: string) =>
+      deleteNoticeAttachment(schoolId, notice.id, attachmentId),
     onSuccess: () => {
-      toast.notify('success', 'Attachment removed.');
+      toast.notify("success", "Attachment removed.");
       invalidate();
     },
-    onError: (error) => toast.notify('error', errorMessage(error)),
+    onError: (error) => toast.notify("error", errorMessage(error)),
   });
 
   async function upload(file: File): Promise<void> {
     if (file.size > 1024 * 1024) {
-      toast.notify('error', 'Attachments must be 1 MiB or smaller.');
+      toast.notify("error", "Attachments must be 1 MiB or smaller.");
       return;
     }
     setBusy(true);
@@ -545,16 +733,16 @@ function NoticeAttachments({ notice }: { notice: NoticeRecord }): ReactNode {
       const dataBase64 = await fileToBase64(file);
       await uploadNoticeAttachment(schoolId, notice.id, {
         filename: file.name,
-        contentType: file.type || 'application/octet-stream',
+        contentType: file.type || "application/octet-stream",
         dataBase64,
       });
-      toast.notify('success', 'Attachment uploaded.');
+      toast.notify("success", "Attachment uploaded.");
       invalidate();
     } catch (caught) {
-      toast.notify('error', errorMessage(caught));
+      toast.notify("error", errorMessage(caught));
     } finally {
       setBusy(false);
-      if (inputRef.current) inputRef.current.value = '';
+      if (inputRef.current) inputRef.current.value = "";
     }
   }
 
@@ -566,7 +754,10 @@ function NoticeAttachments({ notice }: { notice: NoticeRecord }): ReactNode {
       ) : (
         <ul className="space-y-2">
           {notice.attachments.map((attachment) => (
-            <li key={attachment.id} className="flex items-center justify-between gap-2 text-sm">
+            <li
+              key={attachment.id}
+              className="flex items-center justify-between gap-2 text-sm"
+            >
               <a
                 href={noticeAttachmentUrl(schoolId, notice.id, attachment.id)}
                 download={attachment.filename}
@@ -603,7 +794,9 @@ function NoticeAttachments({ notice }: { notice: NoticeRecord }): ReactNode {
         />
         {busy && <span className="text-xs text-slate-500">Uploading…</span>}
       </div>
-      <p className="text-xs text-slate-400">Up to 1 MiB per file. Uploads are audited.</p>
+      <p className="text-xs text-slate-400">
+        Up to 1 MiB per file. Uploads are audited.
+      </p>
     </div>
   );
 }
@@ -612,10 +805,11 @@ function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const result = String(reader.result ?? '');
-      resolve(result.slice(result.indexOf(',') + 1));
+      const result = String(reader.result ?? "");
+      resolve(result.slice(result.indexOf(",") + 1));
     };
-    reader.onerror = () => reject(reader.error ?? new Error('Could not read the file'));
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("Could not read the file"));
     reader.readAsDataURL(file);
   });
-}
+}

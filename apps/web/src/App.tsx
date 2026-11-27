@@ -8,6 +8,7 @@ import { Spinner } from './components/ui';
 // Route-level code splitting keeps the first load small; each screen is fetched
 // only when the user opens it.
 const LoginPage = lazy(() => import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })));
+const InstitutionSelectionPage = lazy(() => import('./pages/InstitutionSelectionPage').then((m) => ({ default: m.InstitutionSelectionPage })));
 const DashboardPage = lazy(() =>
   import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
 );
@@ -109,6 +110,7 @@ const DiscoveryPage = lazy(() => import('./pages/DiscoveryPage').then((m) => ({ 
 const PaperBuilderPage = lazy(() => import('./pages/PaperBuilderPage').then((m) => ({ default: m.PaperBuilderPage })));
 const StudentPoliciesPage = lazy(() => import('./pages/StudentPoliciesPage').then((m) => ({ default: m.StudentPoliciesPage })));
 const BudgetReportPage = lazy(() => import('./pages/BudgetReportPage').then((m) => ({ default: m.BudgetReportPage })));
+const HelpManualPage = lazy(() => import('./pages/HelpManualPage').then((m) => ({ default: m.HelpManualPage })));
 
 const InstitutionMastersPage=lazy(()=>import('./pages/InstitutionMastersPage').then(m=>({default:m.InstitutionMastersPage})));
 
@@ -120,9 +122,11 @@ export function App(): ReactNode {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route element={<ProtectedLayout />}>
+          <Route path="select-institution" element={<InstitutionSelectionPage />} />
           <Route element={<AppShell />}>
             <Route index element={<DashboardPage />} />
             <Route path="modules" element={<ModulesDirectoryPage />} />
+            <Route path="help/manual" element={<HelpManualPage />} />
             <Route path="pain-points" element={<PainPointsPage />} />
             <Route path="activities" element={<Guarded permission="learning.view"><ActivitiesPage /></Guarded>} />
             <Route path="discovery" element={<Guarded permission="learning.view"><DiscoveryPage /></Guarded>} />

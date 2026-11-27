@@ -13,6 +13,7 @@ import {
 import { errorMessage, fieldErrors } from "../lib/api";
 import { Dialog } from "../components/Dialog";
 import { useToast } from "../components/ToastProvider";
+import { MasterImportActions } from "../components/MasterImportActions";
 import {
   Alert,
   Badge,
@@ -73,15 +74,16 @@ export function SectionsPage(): ReactNode {
         description="A section is a class within a specific academic year. Enrollment capacity is enforced as a warning, not a hard block."
         actions={
           can("academic.section.manage") ? (
-            <Button
-              onClick={() => setDialog({ mode: "create" })}
-              disabled={
-                !years.data?.items.length || !classes.data?.items.length
-              }
-            >
-              <Icon name="plus" className="h-4 w-4" />
-              New section
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {can("imports.manage") && <MasterImportActions entityType="sections" />}
+              <Button
+                onClick={() => setDialog({ mode: "create" })}
+                disabled={!years.data?.items.length || !classes.data?.items.length}
+              >
+                <Icon name="plus" className="h-4 w-4" />
+                New section
+              </Button>
+            </div>
           ) : undefined
         }
       />

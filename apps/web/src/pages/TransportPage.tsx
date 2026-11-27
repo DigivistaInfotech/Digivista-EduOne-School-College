@@ -276,10 +276,15 @@ export function TransportPage(): ReactNode {
               </>
             )}
             {canAllocate && (
-              <Button onClick={() => setDialog({ kind: "allocate" })}>
-                <Icon name="users" className="h-4 w-4" />
-                Allocate student
-              </Button>
+              <>
+                <Button variant="secondary" onClick={() => setTab("bulk")}>
+                  Import allocations
+                </Button>
+                <Button onClick={() => setDialog({ kind: "allocate" })}>
+                  <Icon name="users" className="h-4 w-4" />
+                  Allocate student
+                </Button>
+              </>
             )}
           </div>
         }

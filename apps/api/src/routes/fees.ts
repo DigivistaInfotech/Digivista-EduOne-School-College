@@ -1,4 +1,4 @@
-import { fullName } from '@erp/core';
+import { fullName } from "@erp/core";
 import {
   chargeGenerateInput,
   chargeInput,
@@ -18,17 +18,17 @@ import {
   type PaymentRecord,
   type RefundRecord,
   type StudentCharge,
-} from '@erp/shared';
-import type { FastifyInstance } from 'fastify';
-import type pg from 'pg';
-import { z } from 'zod';
-import { getActor, requirePermission, requestMeta } from '../auth/guards';
-import { getPool, withTransaction } from '../db';
-import { recordActivity, recordAudit } from '../lib/audit';
-import { badRequest, conflict, notFound, parseInput } from '../lib/errors';
-import { assertGuardianLinked } from '../lib/portal';
-import { idempotentRoute } from '../lib/idempotency';
-import { toIsoDate, toIsoDateTime, toNumber } from '../lib/format';
+} from "@erp/shared";
+import type { FastifyInstance } from "fastify";
+import type pg from "pg";
+import { z } from "zod";
+import { getActor, requirePermission, requestMeta } from "../auth/guards";
+import { getPool, withTransaction } from "../db";
+import { recordActivity, recordAudit } from "../lib/audit";
+import { badRequest, conflict, notFound, parseInput } from "../lib/errors";
+import { assertGuardianLinked } from "../lib/portal";
+import { idempotentRoute } from "../lib/idempotency";
+import { toIsoDate, toIsoDateTime, toNumber } from "../lib/format";
 
 const schoolParams = z.object({ schoolId: uuid });
 const idParams = z.object({ schoolId: uuid, id: uuid });
@@ -39,7 +39,7 @@ const listQuery = z.object({
   academicYearId: uuid.optional(),
   studentId: uuid.optional(),
   sectionId: uuid.optional(),
-  status: z.enum(['paid', 'partial', 'unpaid']).optional(),
+  status: z.enum(["paid", "partial", "unpaid"]).optional(),
 });
 const structureQuery = z.object({
   academicYearId: uuid.optional(),
@@ -50,7 +50,7 @@ const paymentQuery = z.object({
   studentId: uuid.optional(),
 });
 const refundQuery = z.object({
-  status: z.enum(['pending', 'approved', 'rejected']).optional(),
+  status: z.enum(["pending", "approved", "rejected"]).optional(),
 });
 
 /**
@@ -63,8 +63,8 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
   /* -------------------------------- fee heads ------------------------------ */
 
   app.get(
-    '/api/schools/:schoolId/fee-heads',
-    { preHandler: requirePermission('fees.view') },
+    "/api/schools/:schoolId/fee-heads",
+    { preHandler: requirePermission("fees.view") },
     async (request) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const { rows } = await getPool().query<{
@@ -72,7 +72,7 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
         code: string;
         name: string;
         description: string | null;
-        status: 'active' | 'inactive';
+        status: "active" | "inactive";
       }>(
         `SELECT id, code, name, description, status FROM fee_heads
          WHERE school_id = $1 ORDER BY name`,
@@ -83,8 +83,8 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.post(
-    '/api/schools/:schoolId/fee-heads',
-    { preHandler: requirePermission('fees.charge.create') },
+    "/api/schools/:schoolId/fee-heads",
+    { preHandler: requirePermission("fees.charge.create") },
     async (request, reply) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const actor = getActor(request);
@@ -96,20 +96,26 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
           code: string;
           name: string;
           description: string | null;
-          status: 'active' | 'inactive';
+          status: "active" | "inactive";
         }>(
           `INSERT INTO fee_heads (school_id, code, name, description, status)
            VALUES ($1, $2, $3, $4, $5)
            RETURNING id, code, name, description, status`,
-          [schoolId, input.code, input.name, input.description ?? null, input.status],
+          [
+            schoolId,
+            input.code,
+            input.name,
+            input.description ?? null,
+            input.status,
+          ],
         );
         await recordAudit(client, {
           schoolId,
           actorUserId: actor.userId,
-          action: 'fees.head_created',
-          entityType: 'fee_head',
+          action: "fees.head_created",
+          entityType: "fee_head",
           entityId: rows[0]!.id,
-          outcome: 'success',
+          outcome: "success",
           after: input,
           ...requestMeta(request),
         });
@@ -121,8 +127,8 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.patch(
-    '/api/schools/:schoolId/fee-heads/:id',
-    { preHandler: requirePermission('fees.charge.create') },
+    "/api/schools/:schoolId/fee-heads/:id",
+    { preHandler: requirePermission("fees.charge.create") },
     async (request) => {
       const { schoolId, id } = parseInput(idParams, request.params);
       const actor = getActor(request);
@@ -134,20 +140,20 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
           code: string;
           name: string;
           description: string | null;
-          status: 'active' | 'inactive';
+          status: "active" | "inactive";
         }>(
-          'SELECT id, code, name, description, status FROM fee_heads WHERE school_id = $1 AND id = $2 FOR UPDATE',
+          "SELECT id, code, name, description, status FROM fee_heads WHERE school_id = $1 AND id = $2 FOR UPDATE",
           [schoolId, id],
         );
         const row = existing.rows[0];
-        if (!row) throw notFound('Fee head not found');
+        if (!row) throw notFound("Fee head not found");
 
         const { rows } = await client.query<{
           id: string;
           code: string;
           name: string;
           description: string | null;
-          status: 'active' | 'inactive';
+          status: "active" | "inactive";
         }>(
           `UPDATE fee_heads SET code = $3, name = $4, description = $5, status = $6
            WHERE school_id = $1 AND id = $2
@@ -157,17 +163,19 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
             id,
             input.code ?? row.code,
             input.name ?? row.name,
-            input.description === undefined ? row.description : input.description,
+            input.description === undefined
+              ? row.description
+              : input.description,
             input.status ?? row.status,
           ],
         );
         await recordAudit(client, {
           schoolId,
           actorUserId: actor.userId,
-          action: 'fees.head_updated',
-          entityType: 'fee_head',
+          action: "fees.head_updated",
+          entityType: "fee_head",
           entityId: id,
-          outcome: 'success',
+          outcome: "success",
           before: row,
           after: input,
           ...requestMeta(request),
@@ -180,13 +188,13 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
   /* ------------------------------- structures ------------------------------ */
 
   app.get(
-    '/api/schools/:schoolId/fee-structures',
-    { preHandler: requirePermission('fees.view') },
+    "/api/schools/:schoolId/fee-structures",
+    { preHandler: requirePermission("fees.view") },
     async (request) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const query = parseInput(structureQuery, request.query);
       const params: unknown[] = [schoolId];
-      const conditions = ['fs.school_id = $1'];
+      const conditions = ["fs.school_id = $1"];
       if (query.academicYearId) {
         params.push(query.academicYearId);
         conditions.push(`fs.academic_year_id = $${params.length}`);
@@ -211,38 +219,42 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
          FROM fee_structures fs
          JOIN classes c ON c.id = fs.class_id AND c.school_id = fs.school_id
          JOIN fee_heads fh ON fh.id = fs.fee_head_id AND fh.school_id = fs.school_id
-         WHERE ${conditions.join(' AND ')}
+         WHERE ${conditions.join(" AND ")}
          ORDER BY c.grade_order NULLS LAST, fh.name`,
         params,
       );
 
       return {
-        items: rows.map(
-          (row): FeeStructure => ({
-            id: row.id,
-            academicYearId: row.academic_year_id,
-            classId: row.class_id,
-            className: row.class_name,
-            feeHeadId: row.fee_head_id,
-            feeHeadName: row.fee_head_name,
-            amount: toNumber(row.amount),
-            dueOn: row.due_on ? toIsoDate(row.due_on) : null,
-          }),
-        ),
+        items: rows.map((row): FeeStructure => ({
+          id: row.id,
+          academicYearId: row.academic_year_id,
+          classId: row.class_id,
+          className: row.class_name,
+          feeHeadId: row.fee_head_id,
+          feeHeadName: row.fee_head_name,
+          amount: toNumber(row.amount),
+          dueOn: row.due_on ? toIsoDate(row.due_on) : null,
+        })),
       };
     },
   );
 
   app.post(
-    '/api/schools/:schoolId/fee-structures',
-    { preHandler: requirePermission('fees.charge.create') },
+    "/api/schools/:schoolId/fee-structures",
+    { preHandler: requirePermission("fees.charge.create") },
     async (request, reply) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const actor = getActor(request);
       const input = parseInput(feeStructureInput, request.body);
 
       const structure = await withTransaction(async (client) => {
-        await assertYearClassHead(client, schoolId, input.academicYearId, input.classId, input.feeHeadId);
+        await assertYearClassHead(
+          client,
+          schoolId,
+          input.academicYearId,
+          input.classId,
+          input.feeHeadId,
+        );
         const { rows } = await client.query<{
           id: string;
           academic_year_id: string;
@@ -276,10 +288,10 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
         await recordAudit(client, {
           schoolId,
           actorUserId: actor.userId,
-          action: 'fees.structure_created',
-          entityType: 'fee_structure',
+          action: "fees.structure_created",
+          entityType: "fee_structure",
           entityId: rows[0]!.id,
-          outcome: 'success',
+          outcome: "success",
           after: input,
           ...requestMeta(request),
         });
@@ -291,8 +303,8 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.patch(
-    '/api/schools/:schoolId/fee-structures/:id',
-    { preHandler: requirePermission('fees.charge.create') },
+    "/api/schools/:schoolId/fee-structures/:id",
+    { preHandler: requirePermission("fees.charge.create") },
     async (request) => {
       const { schoolId, id } = parseInput(idParams, request.params);
       const actor = getActor(request);
@@ -304,11 +316,11 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
           amount: string;
           due_on: string | null;
         }>(
-          'SELECT id, amount, due_on FROM fee_structures WHERE school_id = $1 AND id = $2 FOR UPDATE',
+          "SELECT id, amount, due_on FROM fee_structures WHERE school_id = $1 AND id = $2 FOR UPDATE",
           [schoolId, id],
         );
         const row = existing.rows[0];
-        if (!row) throw notFound('Fee structure not found');
+        if (!row) throw notFound("Fee structure not found");
 
         const { rows } = await client.query<{
           id: string;
@@ -341,10 +353,10 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
         await recordAudit(client, {
           schoolId,
           actorUserId: actor.userId,
-          action: 'fees.structure_updated',
-          entityType: 'fee_structure',
+          action: "fees.structure_updated",
+          entityType: "fee_structure",
           entityId: id,
-          outcome: 'success',
+          outcome: "success",
           before: row,
           after: input,
           ...requestMeta(request),
@@ -357,13 +369,13 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
   /* --------------------------------- charges -------------------------------- */
 
   app.get(
-    '/api/schools/:schoolId/fees/charges',
-    { preHandler: requirePermission('fees.view') },
+    "/api/schools/:schoolId/fees/charges",
+    { preHandler: requirePermission("fees.view") },
     async (request) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const query = parseInput(listQuery, request.query);
       const params: unknown[] = [schoolId];
-      const conditions = ['ch.school_id = $1'];
+      const conditions = ["ch.school_id = $1"];
       if (query.academicYearId) {
         params.push(query.academicYearId);
         conditions.push(`ch.academic_year_id = $${params.length}`);
@@ -382,33 +394,43 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const { rows } = await getPool().query<ChargeRow>(
-        `${chargeSelect} WHERE ${conditions.join(' AND ')}
+        `${chargeSelect} WHERE ${conditions.join(" AND ")}
          ORDER BY ch.due_on, st.first_name, fh.name`,
         params,
       );
 
       const items = rows.map(mapCharge);
       return {
-        items: query.status ? items.filter((item) => item.status === query.status) : items,
+        items: query.status
+          ? items.filter((item) => item.status === query.status)
+          : items,
       };
     },
   );
 
   app.post(
-    '/api/schools/:schoolId/fees/charges',
-    { preHandler: requirePermission('fees.charge.create') },
+    "/api/schools/:schoolId/fees/charges",
+    { preHandler: requirePermission("fees.charge.create") },
     async (request, reply) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const actor = getActor(request);
       const input = parseInput(chargeInput, request.body);
       if (input.concessionAmount > input.amount) {
-        throw badRequest('The concession cannot exceed the charge amount', {
-          concessionAmount: ['Enter a concession less than or equal to the amount'],
+        throw badRequest("The concession cannot exceed the charge amount", {
+          concessionAmount: [
+            "Enter a concession less than or equal to the amount",
+          ],
         });
       }
 
       const charge = await withTransaction(async (client) => {
-        await assertStudentYearHead(client, schoolId, input.studentId, input.academicYearId, input.feeHeadId);
+        await assertStudentYearHead(
+          client,
+          schoolId,
+          input.studentId,
+          input.academicYearId,
+          input.feeHeadId,
+        );
         const { rows } = await client.query<{ id: string }>(
           `INSERT INTO student_charges
              (school_id, student_id, academic_year_id, fee_head_id, description,
@@ -431,24 +453,27 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
         await recordAudit(client, {
           schoolId,
           actorUserId: actor.userId,
-          action: 'fees.charge_created',
-          entityType: 'student_charge',
+          action: "fees.charge_created",
+          entityType: "student_charge",
           entityId: rows[0]!.id,
-          outcome: 'success',
+          outcome: "success",
           after: { ...input, netAmount: input.amount - input.concessionAmount },
           ...requestMeta(request),
         });
         return rows[0]!.id;
       });
 
-      const { rows } = await getPool().query<ChargeRow>(`${chargeSelect} WHERE ch.id = $1`, [charge]);
+      const { rows } = await getPool().query<ChargeRow>(
+        `${chargeSelect} WHERE ch.id = $1`,
+        [charge],
+      );
       return reply.status(201).send(mapCharge(rows[0]!));
     },
   );
 
   app.patch(
-    '/api/schools/:schoolId/fees/charges/:id',
-    { preHandler: requirePermission('fees.charge.create') },
+    "/api/schools/:schoolId/fees/charges/:id",
+    { preHandler: requirePermission("fees.charge.create") },
     async (request) => {
       const { schoolId, id } = parseInput(idParams, request.params);
       const actor = getActor(request);
@@ -470,13 +495,16 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
           [schoolId, id],
         );
         const row = existing.rows[0];
-        if (!row) throw notFound('Charge not found');
+        if (!row) throw notFound("Charge not found");
         if (
-          Number(input.concessionAmount ?? row.concession_amount) + Number(row.write_off_amount) >
+          Number(input.concessionAmount ?? row.concession_amount) +
+            Number(row.write_off_amount) >
           Number(row.amount)
         ) {
-          throw badRequest('The concession cannot exceed the charge amount', {
-            concessionAmount: ['Enter a concession less than or equal to the amount'],
+          throw badRequest("The concession cannot exceed the charge amount", {
+            concessionAmount: [
+              "Enter a concession less than or equal to the amount",
+            ],
           });
         }
 
@@ -489,48 +517,62 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
             id,
             input.description ?? row.description,
             input.concessionAmount ?? row.concession_amount,
-            input.concessionReason === undefined ? row.concession_reason : input.concessionReason,
+            input.concessionReason === undefined
+              ? row.concession_reason
+              : input.concessionReason,
             input.dueOn ?? row.due_on,
           ],
         );
         await recordAudit(client, {
           schoolId,
           actorUserId: actor.userId,
-          action: 'fees.charge_updated',
-          entityType: 'student_charge',
+          action: "fees.charge_updated",
+          entityType: "student_charge",
           entityId: id,
-          outcome: 'success',
+          outcome: "success",
           before: row,
           after: input,
           ...requestMeta(request),
         });
       });
 
-      const { rows } = await getPool().query<ChargeRow>(`${chargeSelect} WHERE ch.id = $1`, [id]);
+      const { rows } = await getPool().query<ChargeRow>(
+        `${chargeSelect} WHERE ch.id = $1`,
+        [id],
+      );
       return mapCharge(rows[0]!);
     },
   );
 
   app.post(
-    '/api/schools/:schoolId/fees/charges/generate',
-    { preHandler: requirePermission('fees.charge.create') },
+    "/api/schools/:schoolId/fees/charges/generate",
+    { preHandler: requirePermission("fees.charge.create") },
     async (request, reply) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const actor = getActor(request);
       const input = parseInput(chargeGenerateInput, request.body);
 
       const result = await withTransaction(async (client) => {
-        const section = await client.query<{ id: string; class_id: string; class_name: string; name: string }>(
+        const section = await client.query<{
+          id: string;
+          class_id: string;
+          class_name: string;
+          name: string;
+        }>(
           `SELECT sec.id, sec.class_id, c.name AS class_name, sec.name
            FROM sections sec JOIN classes c ON c.id = sec.class_id AND c.school_id = sec.school_id
            WHERE sec.school_id = $1 AND sec.id = $2 AND sec.academic_year_id = $3`,
           [schoolId, input.sectionId, input.academicYearId],
         );
         const sectionRow = section.rows[0];
-        if (!sectionRow) throw notFound('Section not found');
+        if (!sectionRow) throw notFound("Section not found");
 
-        const params: unknown[] = [schoolId, input.academicYearId, sectionRow.class_id];
-        let headFilter = '';
+        const params: unknown[] = [
+          schoolId,
+          input.academicYearId,
+          sectionRow.class_id,
+        ];
+        let headFilter = "";
         if (input.feeHeadIds && input.feeHeadIds.length > 0) {
           params.push(input.feeHeadIds);
           headFilter = `AND fs.fee_head_id = ANY($${params.length}::uuid[])`;
@@ -551,9 +593,12 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
           params,
         );
         if (structures.rows.length === 0) {
-          throw badRequest('No fee structures are configured for this class and year', {
-            sectionId: ['Add fee structures for the class first'],
-          });
+          throw badRequest(
+            "No fee structures are configured for this class and year",
+            {
+              sectionId: ["Add fee structures for the class first"],
+            },
+          );
         }
 
         const students = await client.query<{ student_id: string }>(
@@ -592,10 +637,10 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
         await recordAudit(client, {
           schoolId,
           actorUserId: actor.userId,
-          action: 'fees.charges_generated',
-          entityType: 'section',
+          action: "fees.charges_generated",
+          entityType: "section",
           entityId: sectionRow.id,
-          outcome: 'success',
+          outcome: "success",
           after: {
             class: `${sectionRow.class_name} · ${sectionRow.name}`,
             created,
@@ -607,9 +652,9 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
         if (created > 0) {
           await recordActivity(client, {
             schoolId,
-            entityType: 'section',
+            entityType: "section",
             entityId: sectionRow.id,
-            eventType: 'fees.charges_generated',
+            eventType: "fees.charges_generated",
             actorUserId: actor.userId,
             summary: `${created} fee charges generated for ${sectionRow.class_name} · ${sectionRow.name}`,
           });
@@ -625,13 +670,13 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
   /* --------------------------------- payments ------------------------------- */
 
   app.get(
-    '/api/schools/:schoolId/fees/payments',
-    { preHandler: requirePermission('fees.view') },
+    "/api/schools/:schoolId/fees/payments",
+    { preHandler: requirePermission("fees.view") },
     async (request) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const query = parseInput(paymentQuery, request.query);
       const params: unknown[] = [schoolId];
-      const conditions = ['p.school_id = $1'];
+      const conditions = ["p.school_id = $1"];
       if (query.academicYearId) {
         params.push(query.academicYearId);
         conditions.push(`p.academic_year_id = $${params.length}`);
@@ -642,7 +687,7 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const { rows } = await getPool().query<PaymentRow>(
-        `${paymentSelect} WHERE ${conditions.join(' AND ')}
+        `${paymentSelect} WHERE ${conditions.join(" AND ")}
          GROUP BY p.id, st.id, u.display_name
          ORDER BY p.paid_on DESC, p.created_at DESC`,
         params,
@@ -652,15 +697,20 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.post(
-    '/api/schools/:schoolId/fees/payments',
-    { preHandler: requirePermission('fees.payment.verify') },
-    idempotentRoute('POST /fees/payments', async (request, reply) => {
+    "/api/schools/:schoolId/fees/payments",
+    { preHandler: requirePermission("fees.payment.verify") },
+    idempotentRoute("POST /fees/payments", async (request, reply) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const actor = getActor(request);
       const input = parseInput(paymentInput, request.body);
 
       const paymentId = await withTransaction(async (client) => {
-        await assertStudentYear(client, schoolId, input.studentId, input.academicYearId);
+        await assertStudentYear(
+          client,
+          schoolId,
+          input.studentId,
+          input.academicYearId,
+        );
 
         // Lock the student's open charges so concurrent payments cannot
         // allocate more than the outstanding balance.
@@ -675,8 +725,8 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
                   (ch.amount - ch.concession_amount - ch.write_off_amount)::text AS net,
                   COALESCE((
                     SELECT sum(pa.amount) FROM payment_allocations pa
-                    JOIN payments p ON p.id = pa.payment_id AND p.status = 'recorded'
-                    WHERE pa.charge_id = ch.id
+                    JOIN payments p ON p.id = pa.payment_id AND p.school_id = pa.school_id AND p.status = 'recorded'
+                    WHERE pa.school_id = ch.school_id AND pa.charge_id = ch.id
                   ), 0)::text AS paid,
                   ch.due_on
            FROM student_charges ch
@@ -694,7 +744,8 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
             if (remaining <= 0) break;
             const outstanding = Math.max(
               0,
-              Math.round((Number(charge.net) - Number(charge.paid)) * 100) / 100,
+              Math.round((Number(charge.net) - Number(charge.paid)) * 100) /
+                100,
             );
             if (outstanding <= 0) continue;
             const amount = Math.min(outstanding, remaining);
@@ -702,33 +753,48 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
             remaining = Math.round((remaining - amount) * 100) / 100;
           }
         } else {
-          const total = allocations.reduce((sum, entry) => sum + entry.amount, 0);
-          if (Math.round(total * 100) / 100 > Math.round(input.amount * 100) / 100) {
-            throw badRequest('Allocations cannot exceed the payment amount', {
-              allocations: ['Reduce the allocated amounts'],
+          const total = allocations.reduce(
+            (sum, entry) => sum + entry.amount,
+            0,
+          );
+          if (
+            Math.round(total * 100) / 100 >
+            Math.round(input.amount * 100) / 100
+          ) {
+            throw badRequest("Allocations cannot exceed the payment amount", {
+              allocations: ["Reduce the allocated amounts"],
             });
           }
-          const byId = new Map(charges.rows.map((charge) => [charge.id, charge]));
+          const byId = new Map(
+            charges.rows.map((charge) => [charge.id, charge]),
+          );
           const seen = new Set<string>();
           for (const allocation of allocations) {
             if (seen.has(allocation.chargeId)) {
-              throw badRequest('Each charge can be allocated only once', {
-                allocations: ['Remove the duplicate charge'],
+              throw badRequest("Each charge can be allocated only once", {
+                allocations: ["Remove the duplicate charge"],
               });
             }
             seen.add(allocation.chargeId);
             const charge = byId.get(allocation.chargeId);
             if (!charge) {
-              throw badRequest('Every allocation must belong to this student and academic year', {
-                allocations: ['Choose charges from this student'],
-              });
+              throw badRequest(
+                "Every allocation must belong to this student and academic year",
+                {
+                  allocations: ["Choose charges from this student"],
+                },
+              );
             }
             const outstanding =
-              Math.round((Number(charge.net) - Number(charge.paid)) * 100) / 100;
+              Math.round((Number(charge.net) - Number(charge.paid)) * 100) /
+              100;
             if (Math.round(allocation.amount * 100) / 100 > outstanding) {
-              throw badRequest('An allocation exceeds the outstanding balance of its charge', {
-                allocations: ['Reduce the allocated amount'],
-              });
+              throw badRequest(
+                "An allocation exceeds the outstanding balance of its charge",
+                {
+                  allocations: ["Reduce the allocated amount"],
+                },
+              );
             }
           }
         }
@@ -741,7 +807,7 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
            RETURNING value`,
           [schoolId],
         );
-        const receiptNumber = `RCPT-${String(counter[0]!.value).padStart(6, '0')}`;
+        const receiptNumber = `RCPT-${String(counter[0]!.value).padStart(6, "0")}`;
 
         const payment = await client.query<{ id: string }>(
           `INSERT INTO payments
@@ -775,10 +841,10 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
         await recordAudit(client, {
           schoolId,
           actorUserId: actor.userId,
-          action: 'fees.payment_recorded',
-          entityType: 'payment',
+          action: "fees.payment_recorded",
+          entityType: "payment",
           entityId: id,
-          outcome: 'success',
+          outcome: "success",
           after: {
             receiptNumber,
             studentId: input.studentId,
@@ -790,9 +856,9 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
         });
         await recordActivity(client, {
           schoolId,
-          entityType: 'student',
+          entityType: "student",
           entityId: input.studentId,
-          eventType: 'fees.payment_recorded',
+          eventType: "fees.payment_recorded",
           actorUserId: actor.userId,
           summary: `Payment ${receiptNumber} recorded for ${formatMoney(input.amount)}`,
         });
@@ -811,13 +877,13 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
   /* --------------------------------- refunds -------------------------------- */
 
   app.get(
-    '/api/schools/:schoolId/fees/refunds',
-    { preHandler: requirePermission('fees.view') },
+    "/api/schools/:schoolId/fees/refunds",
+    { preHandler: requirePermission("fees.view") },
     async (request) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const query = parseInput(refundQuery, request.query);
       const params: unknown[] = [schoolId];
-      let filter = '';
+      let filter = "";
       if (query.status) {
         params.push(query.status);
         filter = `AND r.status = $${params.length}`;
@@ -831,8 +897,8 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.post(
-    '/api/schools/:schoolId/fees/refunds',
-    { preHandler: requirePermission('fees.payment.verify') },
+    "/api/schools/:schoolId/fees/refunds",
+    { preHandler: requirePermission("fees.payment.verify") },
     async (request, reply) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const actor = getActor(request);
@@ -851,9 +917,11 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
           [schoolId, input.paymentId],
         );
         const row = payment.rows[0];
-        if (!row) throw notFound('Payment not found');
-        if (row.status !== 'recorded') {
-          throw badRequest('This payment has been reversed and cannot be refunded');
+        if (!row) throw notFound("Payment not found");
+        if (row.status !== "recorded") {
+          throw badRequest(
+            "This payment has been reversed and cannot be refunded",
+          );
         }
 
         const refunded = await client.query<{ total: string; pending: string }>(
@@ -863,11 +931,20 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
            FROM refunds WHERE school_id = $1 AND payment_id = $2`,
           [schoolId, input.paymentId],
         );
-        const already = Number(refunded.rows[0]!.total) + Number(refunded.rows[0]!.pending);
-        if (Math.round((already + input.amount) * 100) / 100 > Number(row.amount)) {
-          throw badRequest('The refund exceeds the refundable amount of this payment', {
-            amount: [`At most ${formatMoney(Number(row.amount) - already)} can be requested`],
-          });
+        const already =
+          Number(refunded.rows[0]!.total) + Number(refunded.rows[0]!.pending);
+        if (
+          Math.round((already + input.amount) * 100) / 100 >
+          Number(row.amount)
+        ) {
+          throw badRequest(
+            "The refund exceeds the refundable amount of this payment",
+            {
+              amount: [
+                `At most ${formatMoney(Number(row.amount) - already)} can be requested`,
+              ],
+            },
+          );
         }
 
         const { rows } = await client.query<{ id: string }>(
@@ -878,24 +955,27 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
         await recordAudit(client, {
           schoolId,
           actorUserId: actor.userId,
-          action: 'fees.refund_requested',
-          entityType: 'refund',
+          action: "fees.refund_requested",
+          entityType: "refund",
           entityId: rows[0]!.id,
-          outcome: 'success',
+          outcome: "success",
           after: { receiptNumber: row.receipt_number, amount: input.amount },
           ...requestMeta(request),
         });
         return rows[0]!.id;
       });
 
-      const { rows } = await getPool().query<RefundRow>(`${refundSelect} WHERE r.id = $1`, [refundId]);
+      const { rows } = await getPool().query<RefundRow>(
+        `${refundSelect} WHERE r.id = $1`,
+        [refundId],
+      );
       return reply.status(201).send(mapRefund(rows[0]!));
     },
   );
 
   app.post(
-    '/api/schools/:schoolId/fees/refunds/:id/review',
-    { preHandler: requirePermission('fees.refund.approve') },
+    "/api/schools/:schoolId/fees/refunds/:id/review",
+    { preHandler: requirePermission("fees.refund.approve") },
     async (request) => {
       const { schoolId, id } = parseInput(refundParams, request.params);
       const actor = getActor(request);
@@ -914,17 +994,23 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
           [schoolId, id],
         );
         const row = locked.rows[0];
-        if (!row) throw notFound('Refund not found');
-        if (row.status !== 'pending') {
-          throw conflict('This refund has already been reviewed', 'already_reviewed');
+        if (!row) throw notFound("Refund not found");
+        if (row.status !== "pending") {
+          throw conflict(
+            "This refund has already been reviewed",
+            "already_reviewed",
+          );
         }
         if (row.requested_by === actor.userId) {
-          throw conflict('A different approver must review your own refund request', 'self_approval');
+          throw conflict(
+            "A different approver must review your own refund request",
+            "self_approval",
+          );
         }
 
-        if (input.decision === 'approve') {
+        if (input.decision === "approve") {
           const payment = await client.query<{ amount: string }>(
-            'SELECT amount FROM payments WHERE school_id = $1 AND id = $2 FOR UPDATE',
+            "SELECT amount FROM payments WHERE school_id = $1 AND id = $2 FOR UPDATE",
             [schoolId, row.payment_id],
           );
           const approved = await client.query<{ total: string }>(
@@ -933,10 +1019,15 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
             [schoolId, row.payment_id],
           );
           if (
-            Math.round((Number(approved.rows[0]!.total) + Number(row.amount)) * 100) / 100 >
+            Math.round(
+              (Number(approved.rows[0]!.total) + Number(row.amount)) * 100,
+            ) /
+              100 >
             Number(payment.rows[0]!.amount)
           ) {
-            throw badRequest('Approving this refund would exceed the payment amount');
+            throw badRequest(
+              "Approving this refund would exceed the payment amount",
+            );
           }
         }
 
@@ -947,7 +1038,7 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
           [
             schoolId,
             id,
-            input.decision === 'approve' ? 'approved' : 'rejected',
+            input.decision === "approve" ? "approved" : "rejected",
             actor.userId,
             input.note ?? null,
           ],
@@ -956,11 +1047,17 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
           schoolId,
           actorUserId: actor.userId,
           action:
-            input.decision === 'approve' ? 'fees.refund_approved' : 'fees.refund_rejected',
-          entityType: 'refund',
+            input.decision === "approve"
+              ? "fees.refund_approved"
+              : "fees.refund_rejected",
+          entityType: "refund",
           entityId: id,
-          outcome: 'success',
-          after: { decision: input.decision, amount: toNumber(row.amount), note: input.note ?? null },
+          outcome: "success",
+          after: {
+            decision: input.decision,
+            amount: toNumber(row.amount),
+            note: input.note ?? null,
+          },
           ...requestMeta(request),
         });
         return loadRefund(client, schoolId, id);
@@ -973,15 +1070,19 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
   /* ---------------------------------- ledger -------------------------------- */
 
   app.get(
-    '/api/schools/:schoolId/fees/overview',
-    { preHandler: requirePermission('fees.view') },
+    "/api/schools/:schoolId/fees/overview",
+    { preHandler: requirePermission("fees.view") },
     async (request) => {
       const { schoolId } = parseInput(schoolParams, request.params);
-      const query = parseInput(z.object({ academicYearId: uuid.optional() }), request.query);
+      const query = parseInput(
+        z.object({ academicYearId: uuid.optional() }),
+        request.query,
+      );
       const params: unknown[] = [schoolId];
       const yearFilter = query.academicYearId
-        ? (params.push(query.academicYearId), `AND ch.academic_year_id = $${params.length}`)
-        : '';
+        ? (params.push(query.academicYearId),
+          `AND ch.academic_year_id = $${params.length}`)
+        : "";
 
       const charges = await getPool().query<{
         charged: string;
@@ -998,8 +1099,8 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
                   ch.amount, ch.concession_amount, ch.write_off_amount,
                   COALESCE((
                     SELECT sum(pa.amount) FROM payment_allocations pa
-                    JOIN payments p ON p.id = pa.payment_id AND p.status = 'recorded'
-                    WHERE pa.charge_id = ch.id
+                    JOIN payments p ON p.id = pa.payment_id AND p.school_id = pa.school_id AND p.status = 'recorded'
+                    WHERE pa.school_id = ch.school_id AND pa.charge_id = ch.id
                   ), 0)::numeric AS paid
            FROM student_charges ch
            WHERE ch.school_id = $1 ${yearFilter}
@@ -1021,7 +1122,7 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
          FROM refunds r
          JOIN payments p ON p.id = r.payment_id
          WHERE r.school_id = $1 AND r.status = 'approved'
-         ${query.academicYearId ? `AND p.academic_year_id = $2` : ''}`,
+         ${query.academicYearId ? `AND p.academic_year_id = $2` : ""}`,
         query.academicYearId ? [schoolId, query.academicYearId] : [schoolId],
       );
 
@@ -1039,7 +1140,11 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
         totalRefunded,
         totalOutstanding:
           Math.round(
-            (totalCharged - totalConcession - totalWriteOff - totalCollected + totalRefunded) *
+            (totalCharged -
+              totalConcession -
+              totalWriteOff -
+              totalCollected +
+              totalRefunded) *
               100,
           ) / 100,
         chargeCount: toNumber(row.count),
@@ -1052,8 +1157,8 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.get(
-    '/api/schools/:schoolId/fees/students/:studentId/ledger',
-    { preHandler: requirePermission('fees.view') },
+    "/api/schools/:schoolId/fees/students/:studentId/ledger",
+    { preHandler: requirePermission("fees.view") },
     async (request) => {
       const { schoolId, studentId } = parseInput(studentParams, request.params);
       return loadLedger(getPool(), schoolId, studentId, null);
@@ -1063,8 +1168,8 @@ export async function registerFeeRoutes(app: FastifyInstance): Promise<void> {
   /* ------------------------------ guardian portal --------------------------- */
 
   app.get(
-    '/api/schools/:schoolId/portal/children/:studentId/fees',
-    { preHandler: requirePermission('guardian.student.view') },
+    "/api/schools/:schoolId/portal/children/:studentId/fees",
+    { preHandler: requirePermission("guardian.student.view") },
     async (request) => {
       const { schoolId, studentId } = parseInput(studentParams, request.params);
       const actor = getActor(request);
@@ -1101,8 +1206,8 @@ const chargeSelect = `
          ch.write_off_amount,
          COALESCE((
            SELECT sum(pa.amount) FROM payment_allocations pa
-           JOIN payments p ON p.id = pa.payment_id AND p.status = 'recorded'
-           WHERE pa.charge_id = ch.id
+           JOIN payments p ON p.id = pa.payment_id AND p.school_id = pa.school_id AND p.status = 'recorded'
+           WHERE pa.school_id = ch.school_id AND pa.charge_id = ch.id
          ), 0)::text AS paid,
          ch.due_on
   FROM student_charges ch
@@ -1114,7 +1219,8 @@ function mapCharge(row: ChargeRow): StudentCharge {
   const concessionAmount = toNumber(row.concession_amount);
   const writeOffAmount = toNumber(row.write_off_amount);
   const paidAmount = toNumber(row.paid);
-  const netAmount = Math.round((amount - concessionAmount - writeOffAmount) * 100) / 100;
+  const netAmount =
+    Math.round((amount - concessionAmount - writeOffAmount) * 100) / 100;
   const balance = Math.round((netAmount - paidAmount) * 100) / 100;
   return {
     id: row.id,
@@ -1133,7 +1239,7 @@ function mapCharge(row: ChargeRow): StudentCharge {
     refundedAmount: 0,
     balance,
     dueOn: toIsoDate(row.due_on),
-    status: balance <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
+    status: balance <= 0 ? "paid" : paidAmount > 0 ? "partial" : "unpaid",
   };
 }
 
@@ -1148,14 +1254,18 @@ interface PaymentRow {
   academic_year_id: string;
   amount: string;
   refunded: string;
-  method: PaymentRecord['method'];
+  method: PaymentRecord["method"];
   reference: string | null;
   paid_on: string;
   notes: string | null;
-  status: 'recorded' | 'reversed';
+  status: "recorded" | "reversed";
   recorded_by_name: string | null;
   created_at: Date | string;
-  allocations: Array<{ chargeId: string; feeHeadName: string; amount: number | string }> | null;
+  allocations: Array<{
+    chargeId: string;
+    feeHeadName: string;
+    amount: number | string;
+  }> | null;
 }
 
 const paymentSelect = `
@@ -1213,7 +1323,7 @@ interface RefundRow {
   receipt_number: string;
   amount: string;
   reason: string;
-  status: RefundRecord['status'];
+  status: RefundRecord["status"];
   requested_by_name: string | null;
   requested_at: Date;
   reviewed_by_name: string | null;
@@ -1251,20 +1361,20 @@ function mapRefund(row: RefundRow): RefundRecord {
 }
 
 async function loadRefund(
-  client: Pick<pg.Pool, 'query'> | pg.PoolClient,
+  client: Pick<pg.Pool, "query"> | pg.PoolClient,
   schoolId: string,
   id: string,
 ): Promise<RefundRecord> {
-  const { rows } = await client.query<RefundRow>(`${refundSelect} WHERE r.school_id = $1 AND r.id = $2`, [
-    schoolId,
-    id,
-  ]);
-  if (!rows[0]) throw notFound('Refund not found');
+  const { rows } = await client.query<RefundRow>(
+    `${refundSelect} WHERE r.school_id = $1 AND r.id = $2`,
+    [schoolId, id],
+  );
+  if (!rows[0]) throw notFound("Refund not found");
   return mapRefund(rows[0]);
 }
 
 export async function loadLedger(
-  client: Pick<pg.Pool, 'query'>,
+  client: Pick<pg.Pool, "query">,
   schoolId: string,
   studentId: string,
   academicYearId: string | null,
@@ -1293,11 +1403,11 @@ export async function loadLedger(
     [schoolId, studentId],
   );
   const studentRow = student.rows[0];
-  if (!studentRow) throw notFound('Student not found');
+  if (!studentRow) throw notFound("Student not found");
 
   const yearId = academicYearId ?? studentRow.academic_year_id;
   const chargeParams: unknown[] = [schoolId, studentId];
-  let chargeYear = '';
+  let chargeYear = "";
   if (yearId) {
     chargeParams.push(yearId);
     chargeYear = `AND ch.academic_year_id = $${chargeParams.length}`;
@@ -1309,7 +1419,7 @@ export async function loadLedger(
   );
 
   const paymentParams: unknown[] = [schoolId, studentId];
-  let paymentYear = '';
+  let paymentYear = "";
   if (yearId) {
     paymentParams.push(yearId);
     paymentYear = `AND p.academic_year_id = $${paymentParams.length}`;
@@ -1323,7 +1433,9 @@ export async function loadLedger(
 
   const chargeItems = charges.rows.map(mapCharge);
   const paymentItems = payments.rows.map(mapPayment);
-  const totalCharged = round(chargeItems.reduce((sum, item) => sum + item.amount, 0));
+  const totalCharged = round(
+    chargeItems.reduce((sum, item) => sum + item.amount, 0),
+  );
   const totalConcession = round(
     chargeItems.reduce((sum, item) => sum + item.concessionAmount, 0),
   );
@@ -1332,7 +1444,7 @@ export async function loadLedger(
   );
   const totalPaid = round(
     paymentItems
-      .filter((payment) => payment.status === 'recorded')
+      .filter((payment) => payment.status === "recorded")
       .reduce((sum, payment) => sum + payment.amount, 0),
   );
   const totalRefunded = round(
@@ -1341,7 +1453,11 @@ export async function loadLedger(
 
   return {
     studentId: studentRow.id,
-    studentName: fullName(studentRow.first_name, studentRow.middle_name, studentRow.last_name),
+    studentName: fullName(
+      studentRow.first_name,
+      studentRow.middle_name,
+      studentRow.last_name,
+    ),
     admissionNumber: studentRow.admission_number,
     className: studentRow.class_name,
     sectionName: studentRow.section_name,
@@ -1351,7 +1467,13 @@ export async function loadLedger(
     totalWriteOff,
     totalPaid,
     totalRefunded,
-    balance: round(totalCharged - totalConcession - totalWriteOff - totalPaid + totalRefunded),
+    balance: round(
+      totalCharged -
+        totalConcession -
+        totalWriteOff -
+        totalPaid +
+        totalRefunded,
+    ),
     charges: chargeItems,
     payments: paymentItems,
   };
@@ -1364,21 +1486,21 @@ async function assertYearClassHead(
   classId: string,
   headId: string,
 ): Promise<void> {
-  const year = await client.query('SELECT 1 FROM academic_years WHERE school_id = $1 AND id = $2', [
-    schoolId,
-    yearId,
-  ]);
-  if (year.rowCount === 0) throw notFound('Academic year not found');
-  const klass = await client.query('SELECT 1 FROM classes WHERE school_id = $1 AND id = $2', [
-    schoolId,
-    classId,
-  ]);
-  if (klass.rowCount === 0) throw notFound('Class not found');
-  const head = await client.query('SELECT 1 FROM fee_heads WHERE school_id = $1 AND id = $2', [
-    schoolId,
-    headId,
-  ]);
-  if (head.rowCount === 0) throw notFound('Fee head not found');
+  const year = await client.query(
+    "SELECT 1 FROM academic_years WHERE school_id = $1 AND id = $2",
+    [schoolId, yearId],
+  );
+  if (year.rowCount === 0) throw notFound("Academic year not found");
+  const klass = await client.query(
+    "SELECT 1 FROM classes WHERE school_id = $1 AND id = $2",
+    [schoolId, classId],
+  );
+  if (klass.rowCount === 0) throw notFound("Class not found");
+  const head = await client.query(
+    "SELECT 1 FROM fee_heads WHERE school_id = $1 AND id = $2",
+    [schoolId, headId],
+  );
+  if (head.rowCount === 0) throw notFound("Fee head not found");
 }
 
 async function assertStudentYear(
@@ -1388,10 +1510,11 @@ async function assertStudentYear(
   yearId: string,
 ): Promise<void> {
   const result = await client.query(
-    'SELECT 1 FROM students s JOIN academic_years y ON y.school_id = s.school_id WHERE s.school_id = $1 AND s.id = $2 AND y.id = $3',
+    "SELECT 1 FROM students s JOIN academic_years y ON y.school_id = s.school_id WHERE s.school_id = $1 AND s.id = $2 AND y.id = $3",
     [schoolId, studentId, yearId],
   );
-  if (result.rowCount === 0) throw notFound('Student or academic year not found');
+  if (result.rowCount === 0)
+    throw notFound("Student or academic year not found");
 }
 
 async function assertStudentYearHead(
@@ -1402,11 +1525,11 @@ async function assertStudentYearHead(
   headId: string,
 ): Promise<void> {
   await assertStudentYear(client, schoolId, studentId, yearId);
-  const head = await client.query('SELECT 1 FROM fee_heads WHERE school_id = $1 AND id = $2', [
-    schoolId,
-    headId,
-  ]);
-  if (head.rowCount === 0) throw notFound('Fee head not found');
+  const head = await client.query(
+    "SELECT 1 FROM fee_heads WHERE school_id = $1 AND id = $2",
+    [schoolId, headId],
+  );
+  if (head.rowCount === 0) throw notFound("Fee head not found");
 }
 
 function mapStructure(row: {
@@ -1436,5 +1559,8 @@ function round(value: number): number {
 }
 
 function formatMoney(value: number): string {
-  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(value);
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+  }).format(value);
 }

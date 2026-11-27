@@ -9,9 +9,10 @@ export interface NavItem {
   end?: boolean;
 }
 
-export const NAV_SECTIONS: Array<{ heading: string; items: NavItem[] }> = [
+export const NAV_SECTIONS: Array<{ heading: string; description: string; items: NavItem[] }> = [
   {
-    heading: "Workspace",
+    heading: "Home & Setup",
+    description: "School overview and starting points",
     items: [
       { to: "/", label: "Overview", icon: "dashboard", end: true },
       {
@@ -25,7 +26,8 @@ export const NAV_SECTIONS: Array<{ heading: string; items: NavItem[] }> = [
     ],
   },
   {
-    heading: "Academic Chain",
+    heading: "Academic & Learning",
+    description: "Classes, teaching, attendance and assessments",
     items: [
       {
         to: "/academic/years",
@@ -107,7 +109,8 @@ export const NAV_SECTIONS: Array<{ heading: string; items: NavItem[] }> = [
     ],
   },
   {
-    heading: "Operations Chain",
+    heading: "Students & Operations",
+    description: "Admissions and day-to-day campus services",
     items: [
       {
         to: "/students",
@@ -175,7 +178,8 @@ export const NAV_SECTIONS: Array<{ heading: string; items: NavItem[] }> = [
     ],
   },
   {
-    heading: "Finance & Accounts",
+    heading: "Finance & Reports",
+    description: "Collections, budgets and reporting",
     items: [
       {
         to: "/fee-collection",
@@ -222,7 +226,8 @@ export const NAV_SECTIONS: Array<{ heading: string; items: NavItem[] }> = [
     ],
   },
   {
-    heading: "Workforce & HR",
+    heading: "People & HR",
+    description: "Staff records, attendance and employment",
     items: [
       {
         to: "/staff",
@@ -262,7 +267,8 @@ export const NAV_SECTIONS: Array<{ heading: string; items: NavItem[] }> = [
     ],
   },
   {
-    heading: "Governance & Portals",
+    heading: "Portals, Access & Security",
+    description: "Family portals, permissions and school controls",
     items: [
       {
         to: "/portal",
@@ -300,6 +306,13 @@ export const NAV_SECTIONS: Array<{ heading: string; items: NavItem[] }> = [
         icon: "layers",
         permission: "school.view",
       },
+    ],
+  },
+  {
+    heading: "Help & Training",
+    description: "How-to guides for school staff",
+    items: [
+      { to: "/help/manual", label: "Staff user manual", icon: "book" },
     ],
   },
 ];

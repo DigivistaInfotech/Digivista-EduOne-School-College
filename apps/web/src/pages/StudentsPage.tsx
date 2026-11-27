@@ -24,6 +24,7 @@ import {
   Field,
   Icon,
   Input,
+  LinkButton,
   PageHeader,
   Select,
   TableSkeleton,
@@ -41,6 +42,10 @@ export function StudentsPage(): ReactNode {
   const [page, setPage] = useState(1);
   const [importOpen, setImportOpen] = useState(false);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (searchParams.get('import') === '1' && can('students.admission.create')) setImportOpen(true);
+  }, [searchParams, can]);
 
   // Reset pagination whenever the filters change, otherwise a stale page can
   // point past the end of the filtered result set.
@@ -85,9 +90,27 @@ export function StudentsPage(): ReactNode {
         actions={
           can('students.admission.create') ? (
             <div className="flex flex-wrap gap-2">
+              <LinkButton
+                href="/api/import-templates/digi-school-admission-template.xlsx"
+                download="digi-school-admission-template.xlsx"
+                variant="ghost"
+                size="sm"
+              >
+                <Icon name="download" className="h-4 w-4" />
+                Blank admission template
+              </LinkButton>
+              <LinkButton
+                href="/api/import-templates/digi-school-students-import.csv"
+                download="digi-school-students-import.csv"
+                variant="ghost"
+                size="sm"
+              >
+                <Icon name="download" className="h-4 w-4" />
+                Download 100 demo rows
+              </LinkButton>
               <Button variant="secondary" onClick={() => setImportOpen(true)}>
                 <Icon name="download" className="h-4 w-4" />
-                Import CSV
+                Import students
               </Button>
               <Link to="/students/new">
                 <Button>
@@ -290,7 +313,71 @@ export function StudentsPage(): ReactNode {
   );
 }
 
-/* ------------------------------ CSV import -------------------------------- */
+async function readXlsxAsCsv(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
+  let eocd = -1;
+  for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 65_557); offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) { eocd = offset; break; }
+  }
+  if (eocd < 0) throw new Error('This is not a valid Excel workbook.');
+  const entryCount = view.getUint16(eocd + 10, true);
+  let directory = view.getUint32(eocd + 16, true);
+  const files = new Map<string, Uint8Array>();
+  const decoder = new TextDecoder();
+  for (let index = 0; index < entryCount; index += 1) {
+    if (view.getUint32(directory, true) !== 0x02014b50) throw new Error('Excel workbook directory is invalid.');
+    const method = view.getUint16(directory + 10, true);
+    const compressedSize = view.getUint32(directory + 20, true);
+    const nameLength = view.getUint16(directory + 28, true);
+    const extraLength = view.getUint16(directory + 30, true);
+    const commentLength = view.getUint16(directory + 32, true);
+    const localOffset = view.getUint32(directory + 42, true);
+    const name = decoder.decode(bytes.subarray(directory + 46, directory + 46 + nameLength));
+    const localNameLength = view.getUint16(localOffset + 26, true);
+    const localExtraLength = view.getUint16(localOffset + 28, true);
+    const start = localOffset + 30 + localNameLength + localExtraLength;
+    const compressed = bytes.subarray(start, start + compressedSize);
+    if (method === 0) files.set(name, compressed);
+    else if (method === 8) {
+      const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      files.set(name, new Uint8Array(await new Response(stream).arrayBuffer()));
+    }
+    directory += 46 + nameLength + extraLength + commentLength;
+  }
+  const xml = (name: string): Document => {
+    const content = files.get(name);
+    if (!content) throw new Error(`Workbook is missing ${name}.`);
+    return new DOMParser().parseFromString(decoder.decode(content), 'application/xml');
+  };
+  const sharedDocument = files.has('xl/sharedStrings.xml') ? xml('xl/sharedStrings.xml') : null;
+  const sharedStrings = sharedDocument
+    ? Array.from(sharedDocument.getElementsByTagName('si'), (item) => Array.from(item.getElementsByTagName('t'), (text) => text.textContent ?? '').join(''))
+    : [];
+  const sheet = xml('xl/worksheets/sheet1.xml');
+  const rows: string[][] = [];
+  for (const rowElement of Array.from(sheet.getElementsByTagName('row'))) {
+    const row: string[] = [];
+    for (const cell of Array.from(rowElement.getElementsByTagName('c'))) {
+      const ref = cell.getAttribute('r') ?? '';
+      const letters = ref.replace(/[0-9]/g, '');
+      const column = [...letters].reduce((sum, char) => sum * 26 + char.charCodeAt(0) - 64, 0) - 1;
+      const type = cell.getAttribute('t');
+      const value = cell.getElementsByTagName('v')[0]?.textContent ?? '';
+      let text = type === 's' ? sharedStrings[Number(value)] ?? '' : type === 'inlineStr' ? cell.getElementsByTagName('t')[0]?.textContent ?? '' : value;
+      if (rowElement.getAttribute('r') !== '1' && /^\d+(\.\d+)?$/.test(text) && ['date_of_birth', 'enrollment_start_date'].includes(rows[0]?.[column]?.replace(/\s*\*+$/, '').toLowerCase() ?? '')) {
+        const date = new Date(Date.UTC(1899, 11, 30) + Number(text) * 86_400_000);
+        text = date.toISOString().slice(0, 10);
+      }
+      row[column] = text;
+    }
+    rows.push(row.map((value) => value ?? ''));
+  }
+  return rows.map((row) => row.map((value) => `"${value.replaceAll('"', '""')}"`).join(',')).join('\n');
+}
+
+/* -------------------------- student file import -------------------------- */
 
 function StudentImportDialog({
   onClose,
@@ -341,19 +428,24 @@ function StudentImportDialog({
   async function handleFile(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      setError('Choose a CSV file smaller than 2 MiB.');
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Choose a CSV or Excel file smaller than 5 MiB.');
       event.target.value = '';
       return;
     }
     try {
-      const text = await file.text();
+      let text: string;
+      if (file.name.toLowerCase().endsWith('.xlsx')) {
+        text = await readXlsxAsCsv(file);
+      } else {
+        text = await file.text();
+      }
       setCsv(text);
       setFileName(file.name);
       setResult(null);
       setError(null);
     } catch {
-      setError('The selected file could not be read.');
+      setError('The selected file could not be read. Use the supplied .xlsx or .csv template.');
     }
   }
 
@@ -376,8 +468,8 @@ function StudentImportDialog({
       open
       onClose={onClose}
       size="lg"
-      title="Import students from CSV"
-      description="Up to 500 rows per import. Each row is admitted separately; failures are reported without stopping the rest."
+      title="Import students from template"
+      description="Upload the blank Excel template after filling it, or use CSV. Required columns are marked with an asterisk in the template. Student and parent details are linked in one import; parent portal access stays pending until verified."
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={mutation.isPending}>
@@ -408,21 +500,21 @@ function StudentImportDialog({
         </Field>
 
         <div>
-          <span className="field-label">CSV file</span>
+          <span className="field-label">Excel or CSV file</span>
           <input
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             onChange={(event) => void handleFile(event)}
             className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-200"
-            aria-label="Student CSV file"
+            aria-label="Student import Excel or CSV file"
           />
           {fileName && <p className="mt-1 text-xs text-slate-500">Loaded {fileName}</p>}
         </div>
 
         <Field
-          label="CSV contents"
+          label="Import data preview"
           htmlFor="import-csv"
-          hint="Required columns: first_name, class_name, section_name. Optional: admission_number, middle_name, last_name, date_of_birth."
+          hint="The preview uses the same checks as manual admission. The template marks required fields with *; each guardian entered needs a name, relationship, and either phone or email."
         >
           <textarea
             id="import-csv"
@@ -430,9 +522,13 @@ function StudentImportDialog({
             rows={8}
             value={csv}
             onChange={(event) => setCsv(event.target.value)}
-            placeholder={'first_name,last_name,class_name,section_name\nAisha,Khan,Grade 1,A'}
+          placeholder={'first_name *,date_of_birth *,gender *,home_address *,city *,state *,postal_code *,emergency_contact *,class_name *,section_name *,guardian_1_first_name *,guardian_1_relationship *'}
           />
         </Field>
+
+        <p className="text-xs leading-5 text-slate-500">
+          Class and section names must already exist for the selected academic year and match the file exactly. Each import accepts up to 500 rows; invalid rows are listed below. The 100-row demo data link is synthetic test data.
+        </p>
 
         {result && (
           <Alert tone={result.failed > 0 ? 'warning' : 'success'}>

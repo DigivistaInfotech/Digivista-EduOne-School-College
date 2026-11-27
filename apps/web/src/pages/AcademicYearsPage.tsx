@@ -9,10 +9,11 @@ import {
   listAcademicYears,
   updateAcademicYear,
 } from "../lib/endpoints";
-import { errorMessage, fieldErrors } from "../lib/api";
+import { api, errorMessage, fieldErrors } from "../lib/api";
 import { formatDate, todayIso } from "../lib/format";
 import { ConfirmDialog, Dialog } from "../components/Dialog";
 import { useToast } from "../components/ToastProvider";
+import { MasterImportActions } from "../components/MasterImportActions";
 import {
   Alert,
   Badge,
@@ -44,6 +45,8 @@ export function AcademicYearsPage(): ReactNode {
     { mode: "create" } | { mode: "edit"; year: AcademicYear } | null
   >(null);
   const [activating, setActivating] = useState<AcademicYear | null>(null);
+  const [copyTarget, setCopyTarget] = useState<AcademicYear | null>(null);
+  const [copySourceId, setCopySourceId] = useState("");
 
   const years = useQuery({
     queryKey: ["academic-years", schoolId],
@@ -67,6 +70,19 @@ export function AcademicYearsPage(): ReactNode {
     },
     onError: (error) => toast.notify("error", errorMessage(error)),
   });
+  const copyStructure = useMutation({
+    mutationFn: () => api<{ sectionsCreated: number; subjectMappingsCreated: number }>(
+      `/api/schools/${schoolId}/academic-years/${copyTarget!.id}/copy-structure`,
+      { method: "POST", body: JSON.stringify({ sourceYearId: copySourceId }) },
+    ),
+    onSuccess: (result) => {
+      toast.notify("success", `Structure copied: ${result.sectionsCreated} sections and ${result.subjectMappingsCreated} subject mappings added.`);
+      setCopyTarget(null);
+      setCopySourceId("");
+      invalidate();
+    },
+    onError: (error) => toast.notify("error", errorMessage(error)),
+  });
 
   return (
     <div className="space-y-6">
@@ -75,10 +91,13 @@ export function AcademicYearsPage(): ReactNode {
         description="Only one year can be active per school. Activating a year closes the previous active year."
         actions={
           can("academic.year.manage") ? (
-            <Button onClick={() => setDialog({ mode: "create" })}>
-              <Icon name="plus" className="h-4 w-4" />
-              New academic year
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {can("imports.manage") && <MasterImportActions entityType="academic_years" />}
+              <Button onClick={() => setDialog({ mode: "create" })}>
+                <Icon name="plus" className="h-4 w-4" />
+                New academic year
+              </Button>
+            </div>
           ) : undefined
         }
       />
@@ -144,6 +163,13 @@ export function AcademicYearsPage(): ReactNode {
                                 Activate
                               </Button>
                             )}
+                          {year.status !== "archived" && years.data.items.some((source) => source.id !== year.id && source.startsOn < year.startsOn) && (
+                            <Button size="sm" variant="secondary" onClick={() => {
+                              const source = years.data.items.filter((item) => item.id !== year.id && item.startsOn < year.startsOn).sort((a, b) => b.startsOn.localeCompare(a.startsOn))[0];
+                              setCopySourceId(source?.id ?? "");
+                              setCopyTarget(year);
+                            }}>Copy structure</Button>
+                          )}
                           <Button
                             size="sm"
                             variant="ghost"
@@ -176,6 +202,21 @@ export function AcademicYearsPage(): ReactNode {
           }}
         />
       )}
+
+      <Dialog
+        open={copyTarget !== null}
+        title="Copy academic structure"
+        description="Reuses school-wide classes and subjects, then adds missing sections and class-subject mappings to the selected year. Existing target records are left untouched."
+        onClose={() => { setCopyTarget(null); setCopySourceId(""); }}
+        footer={<><Button variant="secondary" onClick={() => setCopyTarget(null)}>Cancel</Button><Button loading={copyStructure.isPending} disabled={!copySourceId} onClick={() => copyStructure.mutate()}>Copy structure</Button></>}
+      >
+        <Field label={`Copy from year into ${copyTarget?.name ?? "target year"}`} htmlFor="copy-source-year" required>
+          <Select id="copy-source-year" value={copySourceId} onChange={(event) => setCopySourceId(event.target.value)} required>
+            <option value="">Select previous academic year</option>
+            {years.data?.items.filter((source) => source.id !== copyTarget?.id && source.startsOn < (copyTarget?.startsOn ?? "")).map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}
+          </Select>
+        </Field>
+      </Dialog>
 
       <ConfirmDialog
         open={activating !== null}

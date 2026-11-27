@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { ApiError, errorMessage } from "../lib/api";
+import { ApiError, api, errorMessage } from "../lib/api";
 import { requestPasswordReset, resetPassword } from "../lib/endpoints";
 import { Alert, Button, Field, Icon, Input } from "../components/ui";
 import digivistaLogo from "../components/digivista-infotech-logo.png";
@@ -10,53 +10,55 @@ import { IndiaFlag } from "../components/IndiaFlag";
 
 const SIGN_IN_TAGLINE = "One Institution. One Connected Future.";
 
-const DEMO_ACCOUNTS = import.meta.env.DEV ? [
-  {
-    email: "admin@demo.test",
-    password: "Admin@12345",
-    role: "Main Administrator (Principal / Management)",
-  },
-  {
-    email: "coordinator@demo.test",
-    password: "Coord@12345",
-    role: "Academic Coordinator",
-  },
-  {
-    email: "teacher@demo.test",
-    password: "Teacher@12345",
-    role: "Teacher (Class 1-A · assigned section only)",
-  },
-  {
-    email: "parent@demo.test",
-    password: "Parent@12345",
-    role: "Parent (Verified linked children Aarav & Anaya)",
-  },
-  {
-    email: "student@demo.test",
-    password: "Student@12345",
-    role: "Student (Kabir Menon · Senior Secondary)",
-  },
-  {
-    email: "finance@demo.test",
-    password: "Finance@12345",
-    role: "Finance & Accounts Officer",
-  },
-  {
-    email: "transport@demo.test",
-    password: "Staff@12345",
-    role: "Transport Supervisor",
-  },
-  {
-    email: "librarian@demo.test",
-    password: "Staff@12345",
-    role: "Head Librarian",
-  },
-  {
-    email: "auditor@demo.test",
-    password: "Auditor@12345",
-    role: "Internal Compliance Auditor",
-  },
-] : [];
+const DEMO_ACCOUNTS = import.meta.env.DEV
+  ? [
+      {
+        email: "admin@demo.test",
+        password: "Admin@12345",
+        role: "Main Administrator (Principal / Management)",
+      },
+      {
+        email: "coordinator@demo.test",
+        password: "Coord@12345",
+        role: "Academic Coordinator",
+      },
+      {
+        email: "teacher@demo.test",
+        password: "Teacher@12345",
+        role: "Teacher (Class 1-A · assigned section only)",
+      },
+      {
+        email: "parent@demo.test",
+        password: "Parent@12345",
+        role: "Parent (Verified linked children Aarav & Anaya)",
+      },
+      {
+        email: "student@demo.test",
+        password: "Student@12345",
+        role: "Student (Kabir Menon · Senior Secondary)",
+      },
+      {
+        email: "finance@demo.test",
+        password: "Finance@12345",
+        role: "Finance & Accounts Officer",
+      },
+      {
+        email: "transport@demo.test",
+        password: "Staff@12345",
+        role: "Transport Supervisor",
+      },
+      {
+        email: "librarian@demo.test",
+        password: "Staff@12345",
+        role: "Head Librarian",
+      },
+      {
+        email: "auditor@demo.test",
+        password: "Auditor@12345",
+        role: "Internal Compliance Auditor",
+      },
+    ]
+  : [];
 
 export function LoginPage(): ReactNode {
   const { status, login } = useAuth();
@@ -69,19 +71,24 @@ export function LoginPage(): ReactNode {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
-  const [mode, setMode] = useState<"signin" | "forgot" | "reset">(() =>
-    new URLSearchParams(window.location.search).has("resetToken") ? "reset" : "signin",
+  const [mode, setMode] = useState<
+    "signin" | "forgot" | "reset" | "ownerRecovery"
+  >(() =>
+    new URLSearchParams(window.location.search).has("resetToken")
+      ? "reset"
+      : "signin",
   );
-  const [resetToken, setResetToken] = useState(() =>
-    new URLSearchParams(window.location.search).get("resetToken") ?? "",
+  const [resetToken, setResetToken] = useState(
+    () => new URLSearchParams(window.location.search).get("resetToken") ?? "",
   );
   const [newPassword, setNewPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  const [recoverySecret, setRecoverySecret] = useState("");
 
   if (status === "authenticated") {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/select-institution" replace />;
   }
 
   async function handleSubmit(
@@ -96,7 +103,7 @@ export function LoginPage(): ReactNode {
         password,
         needsCode ? totpCode.trim() : undefined,
       );
-      navigate("/", { replace: true });
+      navigate("/select-institution", { replace: true });
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === "mfa_required") {
         setNeedsCode(true);
@@ -165,6 +172,43 @@ export function LoginPage(): ReactNode {
     }
   }
 
+  async function handleOwnerRecovery(
+    event: FormEvent<HTMLFormElement>,
+  ): Promise<void> {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    setNotice(null);
+    if (newPassword !== confirmPassword) {
+      setError("The new password and confirmation do not match.");
+      setSubmitting(false);
+      return;
+    }
+    try {
+      const headers = new Headers({ "Content-Type": "application/json" });
+      headers.set("x-admin-recovery-secret", recoverySecret.trim());
+      await api<{ message: string }>("/api/auth/owner-recovery/password", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          email: email.trim(),
+          newPassword,
+          confirmPassword,
+        }),
+      });
+      setNotice("Password updated. Sign in with the new password.");
+      setMode("signin");
+      setPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setRecoverySecret("");
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div className="grid min-h-screen lg:grid-cols-[1.15fr_1fr] bg-[#F3F6FA]">
       {/* Brand presentation banner with Midnight Navy (#182944) */}
@@ -189,14 +233,17 @@ export function LoginPage(): ReactNode {
             <SchoolChildrenIllustration className="w-full h-auto rounded-xl" />
           </div>
         </div>
-
       </section>
 
       {/* Login / Auth form container */}
       <section className="relative flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-md rounded-2xl border border-slate-200/90 bg-white p-7 sm:p-9 shadow-sm">
           <div className="mb-6">
-            <img src={digivistaLogo} alt="Digivista Infotech" className="h-auto w-full max-w-[210px]" />
+            <img
+              src={digivistaLogo}
+              alt="Digivista Infotech"
+              className="h-auto w-full max-w-[210px]"
+            />
             <p className="mt-2 text-sm font-bold text-[#182944]">
               Education ERP · Nursery to University
             </p>
@@ -211,21 +258,27 @@ export function LoginPage(): ReactNode {
                 ? "Sign In to DIGI"
                 : mode === "forgot"
                   ? "Account Recovery"
-                  : "New Credentials"}
+                  : mode === "ownerRecovery"
+                    ? "Owner Recovery"
+                    : "New Credentials"}
             </span>
             <h2 className="text-2xl font-extrabold tracking-tight text-[#182944]">
               {mode === "signin"
                 ? "Welcome back"
                 : mode === "forgot"
                   ? "Reset your password"
-                  : "Choose a new password"}
+                  : mode === "ownerRecovery"
+                    ? "Recover owner access"
+                    : "Choose a new password"}
             </h2>
             <p className="mt-1 text-xs text-slate-500">
               {mode === "signin"
                 ? "Sign in with the email address registered with your institution."
                 : mode === "forgot"
                   ? "We’ll email a single-use reset link to your registered address if an account exists."
-                  : "Enter your reset token and new password."}
+                  : mode === "ownerRecovery"
+                    ? "Use the one-time recovery key configured in Hostinger. This is restricted to the two Digivista owner accounts."
+                    : "Enter your reset token and new password."}
             </p>
           </div>
 
@@ -337,6 +390,19 @@ export function LoginPage(): ReactNode {
                   </button>
                 )}
               </div>
+              <div className="pt-1 text-center text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("ownerRecovery");
+                    setError(null);
+                    setNotice(null);
+                  }}
+                  className="font-semibold text-slate-500 hover:text-[#087F83] hover:underline"
+                >
+                  Digivista owner recovery
+                </button>
+              </div>
             </form>
           )}
 
@@ -364,6 +430,20 @@ export function LoginPage(): ReactNode {
               >
                 Send Password Reset Link
               </Button>
+
+              <div className="text-center text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("ownerRecovery");
+                    setError(null);
+                    setNotice(null);
+                  }}
+                  className="font-semibold text-[#087F83] hover:underline"
+                >
+                  Use Digivista owner recovery instead
+                </button>
+              </div>
 
               <div className="pt-2 text-center text-xs">
                 <button
@@ -448,6 +528,99 @@ export function LoginPage(): ReactNode {
                   className="font-bold text-[#087F83] hover:underline"
                 >
                   Cancel
+                </button>
+              </div>
+            </form>
+          )}
+
+          {mode === "ownerRecovery" && (
+            <form
+              className="space-y-4"
+              onSubmit={handleOwnerRecovery}
+              noValidate
+            >
+              <Field
+                label="Digivista owner email"
+                htmlFor="owner-recovery-email"
+              >
+                <Input
+                  id="owner-recovery-email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="username"
+                  placeholder="owner@digivistainfotech.com"
+                  className="min-h-[44px]"
+                />
+              </Field>
+              <Field
+                label="One-time recovery key"
+                htmlFor="owner-recovery-key"
+                hint="Set temporarily in Hostinger environment variables. Remove it after both owner accounts are recovered."
+              >
+                <Input
+                  id="owner-recovery-key"
+                  type="password"
+                  required
+                  value={recoverySecret}
+                  onChange={(event) => setRecoverySecret(event.target.value)}
+                  autoComplete="off"
+                  className="min-h-[44px]"
+                />
+              </Field>
+              <Field
+                label="New password (min 12 characters)"
+                htmlFor="owner-recovery-new-password"
+              >
+                <Input
+                  id="owner-recovery-new-password"
+                  type="password"
+                  required
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  autoComplete="new-password"
+                  className="min-h-[44px]"
+                />
+              </Field>
+              <Field
+                label="Confirm new password"
+                htmlFor="owner-recovery-confirm-password"
+              >
+                <Input
+                  id="owner-recovery-confirm-password"
+                  type="password"
+                  required
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  autoComplete="new-password"
+                  className="min-h-[44px]"
+                />
+              </Field>
+              <Button
+                type="submit"
+                loading={submitting}
+                disabled={
+                  !email ||
+                  !recoverySecret ||
+                  newPassword.length < 12 ||
+                  !confirmPassword
+                }
+                className="w-full min-h-[44px] rounded-2xl"
+              >
+                Set password and recover account
+              </Button>
+              <div className="pt-2 text-center text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("signin");
+                    setError(null);
+                    setNotice(null);
+                  }}
+                  className="font-bold text-[#087F83] hover:underline"
+                >
+                  Return to sign in
                 </button>
               </div>
             </form>

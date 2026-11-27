@@ -26,7 +26,7 @@ import { formatClock } from "../lib/format";
 import { Dialog, ConfirmDialog } from "../components/Dialog";
 import { useToast } from "../components/ToastProvider";
 import { SubstitutePlanner } from "../components/SubstitutePlanner";
-import { ClassSectionSelect } from "../components/ClassSectionSelect";
+import { MasterImportActions } from "../components/MasterImportActions";
 import {
   Alert,
   Badge,
@@ -41,6 +41,7 @@ import {
   PageHeader,
   Select,
   TableSkeleton,
+  Textarea,
   cn,
 } from "../components/ui";
 
@@ -54,7 +55,7 @@ const DAYS = [
   { value: 7, label: "Sunday", short: "Sun" },
 ];
 
-type Tab = "grid" | "periods" | "rooms";
+type Tab = "grid" | "substitutions" | "periods" | "rooms";
 type ConfirmTarget =
   | { kind: "slot"; id: string; label: string }
   | { kind: "period"; id: string; label: string }
@@ -71,6 +72,9 @@ export function TimetablePage(): ReactNode {
 
   const [yearId, setYearId] = useState("");
   const [sectionId, setSectionId] = useState("");
+  const [selectedSlotId, setSelectedSlotId] = useState("");
+  const [substitutionCount, setSubstitutionCount] = useState(0);
+  const [todayDay, setTodayDay] = useState(() => new Date().getDay() || 7);
   const [tab, setTab] = useState<Tab>("grid");
   const [dialog, setDialog] = useState<
     | { kind: "slot" }
@@ -142,34 +146,28 @@ export function TimetablePage(): ReactNode {
   const selectedSection = sections.data?.items.find(
     (section) => section.id === sectionId,
   );
+  const classOptions = [...new Map((sections.data?.items ?? []).map((section) => [section.classId, section.className])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  const sectionOptions = (sections.data?.items ?? []).filter((section) => !selectedSection || section.classId === selectedSection.classId);
   const activeSubjects =
     subjects.data?.items.filter((subject) => subject.status === "active") ?? [];
+  const yearName = years.data?.items.find((year) => year.id === yearId)?.name ?? "Academic year";
 
   return (
-    <div className="space-y-6">
+    <div className="print-surface space-y-6">
       <PageHeader
         title="Timetable"
-        description="Periods, rooms and the weekly section timetable. The database rejects double-booked sections, teachers and rooms."
+        description="Build a section's weekly timetable, review teacher replacements and print the selected class schedule. Conflicting section, teacher or room bookings are rejected."
         actions={
-          canManage ? (
+          tab === "grid" ? (
             <>
-              <Button
-                variant="secondary"
-                onClick={() => setDialog({ kind: "room" })}
-                disabled={!yearId}
-              >
-                <Icon name="plus" className="h-4 w-4" />
-                New room
+              <Button className="print-hide" variant="secondary" onClick={() => setTodayDay(new Date().getDay() || 7)}>
+                Today
               </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setDialog({ kind: "period" })}
-                disabled={!yearId}
-              >
-                <Icon name="plus" className="h-4 w-4" />
-                New period
+              <Button className="print-hide" variant="secondary" onClick={() => window.print()}>
+                Print timetable
               </Button>
-              <Button
+              {canManage && <Button className="print-hide"
                 onClick={() => setDialog({ kind: "slot" })}
                 disabled={!sectionId || activeSubjects.length === 0}
                 title={
@@ -179,14 +177,16 @@ export function TimetablePage(): ReactNode {
                 }
               >
                 <Icon name="plus" className="h-4 w-4" />
-                Add slot
-              </Button>
+                Add lesson
+              </Button>}
             </>
-          ) : undefined
+          ) : canManage && tab === "periods" ? <div className="flex flex-wrap gap-2">{can("imports.manage") && <MasterImportActions entityType="timetable_periods" />}<Button onClick={() => setDialog({ kind: "period" })}><Icon name="plus" className="h-4 w-4" />New period</Button></div>
+            : canManage && tab === "rooms" ? <div className="flex flex-wrap gap-2">{can("imports.manage") && <MasterImportActions entityType="rooms" />}<Button onClick={() => setDialog({ kind: "room" })}><Icon name="plus" className="h-4 w-4" />New room</Button></div>
+              : undefined
         }
       />
 
-      <div className="flex flex-wrap items-end gap-4">
+      <div className="print-hide flex flex-wrap items-end gap-4">
         <Field label="Academic year" htmlFor="tt-year">
           <Select
             id="tt-year"
@@ -194,6 +194,7 @@ export function TimetablePage(): ReactNode {
             onChange={(event) => {
               setYearId(event.target.value);
               setSectionId("");
+              setSelectedSlotId("");
             }}
             className="min-w-48"
           >
@@ -205,14 +206,19 @@ export function TimetablePage(): ReactNode {
             ))}
           </Select>
         </Field>
-        <Field label="Class / Section" htmlFor="tt-section">
-          <ClassSectionSelect
-            id="tt-section"
-            value={sectionId}
-            onChange={(id) => setSectionId(id)}
-            academicYearId={yearId}
-            className="min-w-56"
-          />
+        <Field label="Stage / Class" htmlFor="tt-class">
+          <Select id="tt-class" value={selectedSection?.classId ?? ""} onChange={(event) => {
+            const next = sections.data?.items.find((section) => section.classId === event.target.value);
+            setSectionId(next?.id ?? "");
+            setSelectedSlotId("");
+          }} className="min-w-48" disabled={!yearId || !classOptions.length}>
+            {classOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </Select>
+        </Field>
+        <Field label="Section" htmlFor="tt-section">
+          <Select id="tt-section" value={sectionId} onChange={(event) => { setSectionId(event.target.value); setSelectedSlotId(""); }} className="min-w-40" disabled={!sectionOptions.length}>
+            {sectionOptions.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}
+          </Select>
         </Field>
         {selectedSection && (
           <p className="pb-2 text-sm text-slate-500">
@@ -223,13 +229,14 @@ export function TimetablePage(): ReactNode {
       </div>
 
       <div
-        className="flex gap-1 border-b border-slate-200"
+        className="print-hide flex gap-1 overflow-x-auto border-b border-slate-200"
         role="tablist"
         aria-label="Timetable views"
       >
         {(
           [
-            ["grid", "Weekly grid"],
+            ["grid", "Weekly timetable"],
+            ["substitutions", "Substitutions"],
             ["periods", "Periods"],
             ["rooms", "Rooms"],
           ] as Array<[Tab, string]>
@@ -247,12 +254,15 @@ export function TimetablePage(): ReactNode {
                 : "border-transparent text-slate-500 hover:text-slate-800",
             )}
           >
-            {label}
+            {label}{value === "substitutions" && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">{substitutionCount}</span>}
           </button>
         ))}
       </div>
 
-      {canReplace && <SubstitutePlanner key={yearId+sectionId} data={data} />}
+      <div className="print-only mb-4 hidden border-b border-slate-300 pb-3">
+        <h1 className="text-xl font-bold">{selectedSection?.className} · {selectedSection?.name} timetable</h1>
+        <p>{yearName}</p>
+      </div>
       {years.isError || sections.isError ? (
         <ErrorState
           message={errorMessage(years.error ?? sections.error)}
@@ -290,6 +300,10 @@ export function TimetablePage(): ReactNode {
         <TimetableGrid
           data={data!}
           canManage={canManage}
+          selectedSlotId={selectedSlotId}
+          todayDay={todayDay}
+          onSelectSlot={(slot) => setSelectedSlotId(slot.id)}
+          onAssignSubstitute={(slot) => { setSelectedSlotId(slot.id); setTab("substitutions"); }}
           onAdd={() => setDialog({ kind: "slot" })}
           onRemove={(slot) =>
             setConfirming({
@@ -299,7 +313,10 @@ export function TimetablePage(): ReactNode {
             })
           }
         />
-      ) : tab === "periods" ? (
+      ) : tab === "substitutions" ? canReplace ? (
+        <SubstitutePlanner key={`${yearId}-${sectionId}-${selectedSlotId}`} data={data} initialSlotId={selectedSlotId} onCountChange={setSubstitutionCount} />
+      ) : <Card><EmptyState title="Substitutions are not enabled for your role" description="Ask an administrator for timetable management or staff management permission." /></Card>
+      : tab === "periods" ? (
         <PeriodsTable
           periods={data!.periods}
           canManage={canManage}
@@ -395,14 +412,25 @@ function labelForKind(kind: ConfirmTarget["kind"]): string {
 function TimetableGrid({
   data,
   canManage,
+  selectedSlotId,
+  todayDay,
+  onSelectSlot,
+  onAssignSubstitute,
   onAdd,
   onRemove,
 }: {
   data: TimetableData;
   canManage: boolean;
+  selectedSlotId: string;
+  todayDay: number;
+  onSelectSlot: (slot: TimetableSlot) => void;
+  onAssignSubstitute: (slot: TimetableSlot) => void;
   onAdd: () => void;
   onRemove: (slot: TimetableSlot) => void;
 }): ReactNode {
+  const days = data.slots.some((slot) => slot.dayOfWeek > 5) ? DAYS : DAYS.slice(0, 5);
+  const selectedSlot = data.slots.find((slot) => slot.id === selectedSlotId);
+  const selectedPeriod = data.periods.find((period) => period.id === selectedSlot?.periodId);
   if (data.periods.length === 0) {
     return (
       <Card>
@@ -419,6 +447,7 @@ function TimetableGrid({
   }
 
   return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
     <Card>
       <CardHeader
         title="Weekly grid"
@@ -429,14 +458,20 @@ function TimetableGrid({
           <thead>
             <tr>
               <th className="w-40">Period</th>
-              {DAYS.map((day) => (
-                <th key={day.value}>{day.label}</th>
+              {days.map((day) => (
+                <th key={day.value} className={todayDay === day.value ? "bg-teal-50 text-teal-900" : ""}>{day.label}{todayDay === day.value ? " · Today" : ""}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {data.periods.map((period) => (
-              <tr key={period.id}>
+              period.isBreak ? <tr key={period.id} className="bg-amber-50">
+                <th scope="row" className="align-middle text-left">
+                  <p className="font-bold">{period.name}</p>
+                  <p className="font-mono text-xs font-normal">{formatClock(period.startsAt)}–{formatClock(period.endsAt)}</p>
+                </th>
+                <td colSpan={days.length} className="text-center font-bold tracking-wide text-amber-900">Break · {period.name}</td>
+              </tr> : <tr key={period.id}>
                 <td className="align-top">
                   <p className="font-medium text-slate-900">{period.name}</p>
                   <p className="font-mono text-xs text-slate-500">
@@ -444,44 +479,28 @@ function TimetableGrid({
                   </p>
                   {period.isBreak && <Badge tone="warning">Break</Badge>}
                 </td>
-                {DAYS.map((day) => {
+                {days.map((day) => {
                   const slot = data.slots.find(
                     (entry) =>
                       entry.periodId === period.id &&
                       entry.dayOfWeek === day.value,
                   );
                   return (
-                    <td key={day.value} className="align-top">
+                    <td key={day.value} className={`align-top ${todayDay === day.value ? "bg-teal-50/40" : ""}`}>
                       {slot ? (
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium text-slate-900">
-                            {slot.subjectName}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            {slot.teacherName}
-                          </p>
-                          {slot.roomName && (
-                            <p className="text-xs text-slate-400">
-                              {slot.roomName}
-                            </p>
-                          )}
-                          {canManage && (
-                            <button
-                              type="button"
-                              onClick={() => onRemove(slot)}
-                              className="text-xs font-medium text-rose-600 hover:underline"
-                            >
-                              Remove
-                            </button>
-                          )}
+                        <div className="space-y-1.5">
+                          <button type="button" aria-pressed={selectedSlotId === slot.id} onClick={() => onSelectSlot(slot)} className={`timetable-subject-card block w-full rounded-lg border-l-4 p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-700 ${subjectCardTone(slot.subjectId)} ${selectedSlotId === slot.id ? "ring-2 ring-slate-900 ring-offset-1" : ""}`}>
+                            <p className="text-sm font-bold">{slot.subjectName}</p>
+                            <p className="text-xs">{slot.teacherName}</p>
+                            {slot.roomName && <p className="text-xs opacity-80">{slot.roomName}</p>}
+                          </button>
+                          {canManage && <button type="button" onClick={() => onRemove(slot)} className="print-hide text-xs font-medium text-rose-700 hover:underline">Remove</button>}
                         </div>
-                      ) : period.isBreak ? (
-                        <span className="text-xs text-slate-400">Break</span>
                       ) : canManage ? (
                         <button
                           type="button"
                           onClick={onAdd}
-                          className="text-xs font-medium text-brand-700 hover:underline"
+                          className="print-hide text-xs font-medium text-brand-700 hover:underline"
                         >
                           + Add
                         </button>
@@ -497,7 +516,34 @@ function TimetableGrid({
         </table>
       </div>
     </Card>
+    <Card className="print-hide">
+      <CardHeader title="Lesson details" description={selectedSlot ? `${selectedSlot.className} · ${selectedSlot.sectionName}` : "Select a lesson in the weekly grid."} />
+      {selectedSlot && selectedPeriod ? <div className="space-y-4 p-4">
+        <div className="rounded-lg bg-teal-50 p-3 text-sm font-semibold text-teal-900">{DAYS.find((day) => day.value === selectedSlot.dayOfWeek)?.label} · {selectedPeriod.name} · {formatClock(selectedPeriod.startsAt)}–{formatClock(selectedPeriod.endsAt)}</div>
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Subject</p><p className="mt-1 text-lg font-bold">{selectedSlot.subjectName}</p></div>
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Regular teacher</p><p className="mt-1">{selectedSlot.teacherName}</p></div>
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Room</p><p className="mt-1">{selectedSlot.roomName ?? "Not assigned"}</p></div>
+        <Button className="w-full print-hide" variant="secondary" onClick={() => onAssignSubstitute(selectedSlot)}>Check / assign substitute</Button>
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Optional notes</p><p className="mt-1 text-sm text-slate-700">{selectedSlot.notes || "No notes recorded."}</p></div>
+        {canManage && <Button className="w-full" onClick={onAdd}>Add another lesson</Button>}
+      </div> : <EmptyState title="No lesson selected" description="Choose a subject card to see its day, period, teacher and room." />}
+    </Card>
+    </div>
   );
+}
+
+function subjectCardTone(subjectId: string): string {
+  const tones = [
+    "border-sky-500 bg-sky-50 text-sky-950",
+    "border-violet-500 bg-violet-50 text-violet-950",
+    "border-emerald-500 bg-emerald-50 text-emerald-950",
+    "border-amber-500 bg-amber-50 text-amber-950",
+    "border-rose-500 bg-rose-50 text-rose-950",
+    "border-cyan-500 bg-cyan-50 text-cyan-950",
+  ];
+  let hash = 0;
+  for (const char of subjectId) hash = (hash * 31 + char.charCodeAt(0)) | 0;
+  return tones[Math.abs(hash) % tones.length]!;
 }
 
 function PeriodsTable({
@@ -684,6 +730,7 @@ function SlotDialog({
     data.teachers[0]?.id ?? "",
   );
   const [roomId, setRoomId] = useState("");
+  const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
 
@@ -699,6 +746,7 @@ function SlotDialog({
         subjectId,
         teacherUserId,
         roomId: roomId || null,
+        notes: notes.trim() || undefined,
       }),
     onSuccess: onSaved,
     onError: (caught) => {
@@ -846,6 +894,9 @@ function SlotDialog({
             </Select>
           </Field>
         </div>
+        <Field label="Lesson notes (optional)" htmlFor="slot-notes" hint="Add a brief topic or handover note for staff; maximum 500 characters.">
+          <Textarea id="slot-notes" value={notes} onChange={(event) => setNotes(event.target.value.slice(0, 500))} maxLength={500} rows={3} />
+        </Field>
       </form>
     </Dialog>
   );

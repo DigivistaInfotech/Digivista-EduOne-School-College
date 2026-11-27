@@ -1,4 +1,5 @@
 import { OperatingPolicyPanel } from "../components/OperatingPolicyPanel";
+import { MasterImportActions } from "../components/MasterImportActions";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth, useSchoolId } from "../auth/AuthContext";
@@ -70,6 +71,7 @@ export function InstitutionMastersPage() {
       <PageHeader
         title="Institution masters"
         description="Reusable classifications for school, college and university records. Staff mapping uses master IDs; a designation does not grant application access."
+        actions={can("school.manage") && can("imports.manage") ? <MasterImportActions entityType="institution_masters" /> : undefined}
       />
       <OperatingPolicyPanel />
       <Card>

@@ -84,6 +84,7 @@ export interface GuardianRecord {
   id: string;
   firstName: string;
   lastName: string | null;
+  occupation: string | null;
   email: string | null;
   phone: string | null;
   relationshipType: string;
@@ -119,6 +120,16 @@ export interface StudentSummary {
 export interface StudentDetail extends StudentSummary {
   bloodGroup?: string | null;
   emergencyContact?: string | null;
+  gender?: 'female' | 'male' | 'other' | 'not_disclosed' | null;
+  aadhaarLast4?: string | null;
+  previousClass?: string | null;
+  previousSchoolName?: string | null;
+  homeAddress?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  medicalInformation?: string | null;
+  admissionDocuments?: Record<string, 'not_provided' | 'received' | 'verified' | 'not_applicable'>;
   middleName: string | null;
   dateOfBirth: string | null;
   createdAt: string;
@@ -297,6 +308,7 @@ export interface TimetableSlot {
   teacherName: string;
   roomId: string | null;
   roomName: string | null;
+  notes: string | null;
 }
 
 export interface TimetableData {
@@ -584,6 +596,8 @@ export interface NoticeRecord {
   id: string;
   title: string;
   body: string;
+  category: 'general' | 'academic' | 'examination' | 'holiday' | 'fee' | 'attendance' | 'parent_meeting' | 'school_event' | 'competition' | 'admission' | 'transport' | 'library' | 'health_safety' | 'achievement' | 'staff' | 'emergency';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
   audience: 'all' | 'staff' | 'parents' | 'students';
   status: 'draft' | 'published' | 'archived';
   pinned: boolean;

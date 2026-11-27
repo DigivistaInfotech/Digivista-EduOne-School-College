@@ -6,6 +6,7 @@ import { createSubject, listSubjects, updateSubject } from "../lib/endpoints";
 import { api, errorMessage, fieldErrors } from "../lib/api";
 import { Dialog } from "../components/Dialog";
 import { useToast } from "../components/ToastProvider";
+import { MasterImportActions } from "../components/MasterImportActions";
 import {
   Alert,
   Badge,
@@ -53,10 +54,13 @@ export function SubjectsPage(): ReactNode {
         description="Subject catalogue shared across classes, used by timetables and grade entry."
         actions={
           can("academic.subject.manage") ? (
-            <Button onClick={() => setDialog({ mode: "create" })}>
-              <Icon name="plus" className="h-4 w-4" />
-              New subject
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {can("imports.manage") && <MasterImportActions entityType="subjects" />}
+              <Button onClick={() => setDialog({ mode: "create" })}>
+                <Icon name="plus" className="h-4 w-4" />
+                New subject
+              </Button>
+            </div>
           ) : undefined
         }
       />
@@ -158,6 +162,7 @@ function SubjectOfferingPanel({
   subjects: SubjectRecord[];
 }): ReactNode {
   const schoolId = useSchoolId();
+  const { can } = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
   const [yearId, setYearId] = useState("");
@@ -212,7 +217,10 @@ function SubjectOfferingPanel({
   });
   return (
     <Card>
-      <h2 className="text-lg font-semibold">Subject class offerings</h2>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h2 className="text-lg font-semibold">Subject class offerings</h2>
+        {can("imports.manage") && <MasterImportActions entityType="subject_offerings" />}
+      </div>
       <p className="mt-1 text-sm text-slate-600">
         Choose which classes offer each subject for an academic year. This
         master supports library book mapping without creating teacher

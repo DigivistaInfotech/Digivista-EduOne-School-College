@@ -5,7 +5,7 @@ import {
   SCHOOL_EXPENSE_GROUPS,
   SCHOOL_EXPENSE_ITEMS,
 } from "@erp/shared/procurement-catalog";
-import { useSchoolId } from "../auth/AuthContext";
+import { useAuth, useSchoolId } from "../auth/AuthContext";
 import {
   BUDGET_REFRESH_OPTIONS,
   BudgetRefresh,
@@ -29,12 +29,14 @@ import {
 } from "../components/ui";
 
 export function BudgetReportPage() {
+  const { membership } = useAuth();
   const schoolId = useSchoolId();
   const [params, setParams] = useSearchParams();
   const [year, setYear] = useState("");
   const [group, setGroup] = useState("");
   const [department, setDepartment] = useState("");
   const [location, setLocation] = useState("");
+  const [detailFilter, setDetailFilter] = useState<"all" | "actual" | "pending" | "commitments" | "available" | "overspent">("all");
   const selected = params.get("budget") ?? "";
   const years = useQuery({
     queryKey: ["academic-years", schoolId],
@@ -62,23 +64,26 @@ export function BudgetReportPage() {
         )?.groupCode === group) &&
       (!department || budget.department === department) &&
       (!location || budget.floor === location) &&
-      (!selected || budget.id === selected),
+      (!selected || budget.id === selected) &&
+      (detailFilter !== "available" || budget.availableAmount >= 0) &&
+      (detailFilter !== "overspent" || budget.availableAmount < 0),
   );
   const ids = new Set(budgets.map((budget) => budget.id));
-  const overall = !group && !department && !location && !selected;
+  const overall = !group && !department && !location && !selected && detailFilter !== "available" && detailFilter !== "overspent";
   const transactions = data.transactions.filter((row) =>
-    selected === "unallocated"
+    (detailFilter === "actual" ? row.status === "approved" : detailFilter === "pending" ? row.status === "recorded" : true) &&
+    (selected === "unallocated"
       ? !row.budgetId
       : row.budgetId
         ? ids.has(row.budgetId)
-        : overall,
+        : overall || detailFilter === "overspent"),
   );
   const commitments = data.commitments.filter((row) =>
     selected === "unallocated"
       ? !row.budgetId
       : row.budgetId
         ? ids.has(row.budgetId)
-        : overall,
+        : overall || detailFilter === "overspent",
   );
   const totals = overall
     ? data.totals
@@ -101,12 +106,15 @@ export function BudgetReportPage() {
     totals.overspent = Math.max(0, -totals.available);
   }
   return (
-    <div className="space-y-6">
+    <div className="print-surface space-y-6">
       <PageHeader
         title="Budget, expense & balance"
         description="Live budget-versus-actual figures, with paid bills and matching expense postings counted once. Click a graph row to inspect the underlying items."
         actions={
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="print-hide flex flex-wrap items-center gap-3">
+            <Button variant="secondary" onClick={() => window.print()}>
+              Print budget report
+            </Button>
             <BudgetRefresh
               fetching={report.isFetching}
               updatedAt={report.dataUpdatedAt}
@@ -121,7 +129,15 @@ export function BudgetReportPage() {
           </div>
         }
       />
-      <Card>
+      <div className="print-only mb-5 hidden border-b border-slate-300 pb-3">
+        <p className="text-xl font-bold">
+          {membership?.schoolName ?? "School"}
+        </p>
+        <p className="text-sm">
+          Budget, expense & balance · {data.academicYearName}
+        </p>
+      </div>
+      <Card className="print-hide">
         <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
           <Field label="Academic year" htmlFor="report-year">
             <Select
@@ -205,9 +221,20 @@ export function BudgetReportPage() {
           ["Available after reserves", totals.available],
           ["Over budget / unallocated shortfall", totals.overspent],
         ].map(([label, value]) => (
-          <div
+          <button
+            type="button"
             key={label}
-            className="rounded-2xl border border-slate-200 bg-white p-5"
+            aria-label={`Show ${String(label).toLowerCase()} details`}
+            onClick={() => {
+              const next = label === "Actual approved / paid expense" ? "actual"
+                : label === "Pending recorded expense" ? "pending"
+                : label === "Open-order commitments" ? "commitments"
+                : label === "Available after reserves" ? "available"
+                : label === "Over budget / unallocated shortfall" ? "overspent" : "all";
+              setDetailFilter(next);
+              window.setTimeout(() => document.getElementById(next === "commitments" ? "budget-commitments" : next === "available" || next === "overspent" || next === "all" ? "budget-breakdown" : "budget-items")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+            }}
+            className={`rounded-2xl border bg-white p-5 text-left transition hover:border-teal-600 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-700 ${detailFilter === (label === "Actual approved / paid expense" ? "actual" : label === "Pending recorded expense" ? "pending" : label === "Open-order commitments" ? "commitments" : label === "Available after reserves" ? "available" : label === "Over budget / unallocated shortfall" ? "overspent" : "all") ? "border-teal-600 ring-1 ring-teal-600" : "border-slate-200"}`}
           >
             <p className="text-xs font-semibold text-slate-500">{label}</p>
             <p
@@ -215,7 +242,7 @@ export function BudgetReportPage() {
             >
               {formatMoney(Number(value))}
             </p>
-          </div>
+          </button>
         ))}
       </div>
       {data.totals.unallocatedActual > 0 && (
@@ -229,6 +256,7 @@ export function BudgetReportPage() {
               setGroup("");
               setDepartment("");
               setLocation("");
+              setDetailFilter("all");
               setParams({ budget: "unallocated" });
             }}
           >
@@ -236,20 +264,22 @@ export function BudgetReportPage() {
           </button>
         </Alert>
       )}
-      {(selected || group || department || location) && (
+      {(selected || group || department || location || detailFilter !== "all") && (
         <Button
+          className="print-hide"
           variant="secondary"
           onClick={() => {
             setGroup("");
             setDepartment("");
             setLocation("");
+            setDetailFilter("all");
             setParams({});
           }}
         >
           Clear breakdown filters
         </Button>
       )}
-      <Card>
+      <Card id="budget-breakdown">
         <CardHeader
           title="Budget vs actual — select a row for details"
           description="Grey = allocation scale; teal = actual; amber = pending expense; violet = remaining order commitment. Over-budget amounts are red."
@@ -331,7 +361,7 @@ export function BudgetReportPage() {
           )}
         </div>
       </Card>
-      <Card>
+      <Card id="budget-items">
         <CardHeader
           title="Item-wise expense details"
           description={`${transactions.length} matching records · ${data.academicYearName}`}
@@ -389,7 +419,7 @@ export function BudgetReportPage() {
         )}
       </Card>
       {!!commitments.length && (
-        <Card>
+        <Card id="budget-commitments">
           <CardHeader
             title="Remaining order commitments"
             description="Only the unpaid/unposted remainder is reserved; matching bill and expense amounts are not counted again."

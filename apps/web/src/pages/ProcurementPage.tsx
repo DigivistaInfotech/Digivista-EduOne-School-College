@@ -270,13 +270,20 @@ export function ProcurementPage(): ReactNode {
         actions={
           <div className="flex flex-wrap gap-2">
             {canManageVendors && (
-              <Button
-                variant="secondary"
-                onClick={() => setDialog({ kind: "vendor" })}
-              >
-                <Icon name="plus" className="h-4 w-4" />
-                New vendor
-              </Button>
+              <>
+                {can("imports.manage") && (
+                  <Link to="/data-tools?tab=imports&entityType=vendors">
+                    <Button variant="secondary">Import vendors</Button>
+                  </Link>
+                )}
+                <Button
+                  variant="secondary"
+                  onClick={() => setDialog({ kind: "vendor" })}
+                >
+                  <Icon name="plus" className="h-4 w-4" />
+                  New vendor
+                </Button>
+              </>
             )}
             {canRequest && (
               <Button onClick={() => setDialog({ kind: "request" })}>

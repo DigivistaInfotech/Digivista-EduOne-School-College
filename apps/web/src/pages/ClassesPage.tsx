@@ -7,6 +7,7 @@ import { createClass, listClasses, updateClass } from "../lib/endpoints";
 import { errorMessage, fieldErrors } from "../lib/api";
 import { Dialog } from "../components/Dialog";
 import { useToast } from "../components/ToastProvider";
+import { MasterImportActions } from "../components/MasterImportActions";
 import {
   Alert,
   Badge,
@@ -48,10 +49,13 @@ export function ClassesPage(): ReactNode {
         description="Grade levels offered by the school. Sections and enrollments reference these records."
         actions={
           can("academic.class.manage") ? (
-            <Button onClick={() => setDialog({ mode: "create" })}>
-              <Icon name="plus" className="h-4 w-4" />
-              New class
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {can("imports.manage") && <MasterImportActions entityType="classes" />}
+              <Button onClick={() => setDialog({ mode: "create" })}>
+                <Icon name="plus" className="h-4 w-4" />
+                New class
+              </Button>
+            </div>
           ) : undefined
         }
       />

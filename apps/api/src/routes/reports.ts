@@ -1,13 +1,18 @@
-import { fullName, visibleSectionIds } from '@erp/core';
-import { isoDate, uuid, type AttendanceReport, type FeeReport } from '@erp/shared';
-import type { FastifyInstance } from 'fastify';
-import type pg from 'pg';
-import { z } from 'zod';
-import { getActor, requirePermission, requestMeta } from '../auth/guards';
-import { getPool } from '../db';
-import { recordAudit } from '../lib/audit';
-import { badRequest, parseInput } from '../lib/errors';
-import { toIsoDate, toNumber } from '../lib/format';
+import { fullName, visibleSectionIds } from "@erp/core";
+import {
+  isoDate,
+  uuid,
+  type AttendanceReport,
+  type FeeReport,
+} from "@erp/shared";
+import type { FastifyInstance } from "fastify";
+import type pg from "pg";
+import { z } from "zod";
+import { getActor, requirePermission, requestMeta } from "../auth/guards";
+import { getPool } from "../db";
+import { recordAudit } from "../lib/audit";
+import { badRequest, parseInput } from "../lib/errors";
+import { toIsoDate, toNumber } from "../lib/format";
 
 const schoolParams = z.object({ schoolId: uuid });
 const rangeQuery = z.object({
@@ -16,7 +21,7 @@ const rangeQuery = z.object({
   academicYearId: uuid.optional(),
 });
 const exportQuery = z.object({
-  type: z.enum(['students', 'attendance', 'fees']),
+  type: z.enum(["students", "attendance", "fees"]),
   from: isoDate.optional(),
   to: isoDate.optional(),
   academicYearId: uuid.optional(),
@@ -29,27 +34,39 @@ const exportQuery = z.object({
  * Every query is narrowed to the actor's visible sections when role scope
  * restricts them.
  */
-export async function registerReportRoutes(app: FastifyInstance): Promise<void> {
+export async function registerReportRoutes(
+  app: FastifyInstance,
+): Promise<void> {
   app.get(
-    '/api/schools/:schoolId/reports/attendance',
-    { preHandler: requirePermission('reports.export') },
+    "/api/schools/:schoolId/reports/attendance",
+    { preHandler: requirePermission("reports.export") },
     async (request) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const query = parseInput(rangeQuery, request.query);
       const actor = getActor(request);
       const range = await resolveRange(getPool(), schoolId, query);
-      return attendanceReport(getPool(), schoolId, range.from, range.to, visibleSectionIds(actor));
+      return attendanceReport(
+        getPool(),
+        schoolId,
+        range.from,
+        range.to,
+        visibleSectionIds(actor),
+      );
     },
   );
 
   app.get(
-    '/api/schools/:schoolId/reports/fees',
-    { preHandler: requirePermission('reports.export') },
+    "/api/schools/:schoolId/reports/fees",
+    { preHandler: requirePermission("reports.export") },
     async (request) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const query = parseInput(rangeQuery, request.query);
       const actor = getActor(request);
-      const yearId = await resolveYear(getPool(), schoolId, query.academicYearId);
+      const yearId = await resolveYear(
+        getPool(),
+        schoolId,
+        query.academicYearId,
+      );
       return feeReport(getPool(), schoolId, yearId, visibleSectionIds(actor));
     },
   );
@@ -59,8 +76,8 @@ export async function registerReportRoutes(app: FastifyInstance): Promise<void> 
    * with a UTF-8 BOM so spreadsheet software on Windows opens it correctly.
    */
   app.get(
-    '/api/schools/:schoolId/reports/export',
-    { preHandler: requirePermission('reports.export') },
+    "/api/schools/:schoolId/reports/export",
+    { preHandler: requirePermission("reports.export") },
     async (request, reply) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const query = parseInput(exportQuery, request.query);
@@ -70,11 +87,21 @@ export async function registerReportRoutes(app: FastifyInstance): Promise<void> 
       let csv: string;
       let filename: string;
 
-      if (query.type === 'students') {
-        const yearId = await resolveYear(getPool(), schoolId, query.academicYearId);
-        csv = await studentCsv(getPool(), schoolId, yearId, restricted, query.sectionId);
-        filename = 'students.csv';
-      } else if (query.type === 'attendance') {
+      if (query.type === "students") {
+        const yearId = await resolveYear(
+          getPool(),
+          schoolId,
+          query.academicYearId,
+        );
+        csv = await studentCsv(
+          getPool(),
+          schoolId,
+          yearId,
+          restricted,
+          query.sectionId,
+        );
+        filename = "students.csv";
+      } else if (query.type === "attendance") {
         const range = await resolveRange(getPool(), schoolId, query);
         const report = await attendanceReport(
           getPool(),
@@ -84,7 +111,17 @@ export async function registerReportRoutes(app: FastifyInstance): Promise<void> 
           restricted,
         );
         const rows = [
-          ['Class', 'Section', 'Marked', 'Present', 'Absent', 'Late', 'Half day', 'Excused', 'Rate %'],
+          [
+            "Class",
+            "Section",
+            "Marked",
+            "Present",
+            "Absent",
+            "Late",
+            "Half day",
+            "Excused",
+            "Rate %",
+          ],
           ...report.sections.map((section) => [
             section.className,
             section.sectionName,
@@ -100,9 +137,19 @@ export async function registerReportRoutes(app: FastifyInstance): Promise<void> 
         csv = toCsv(rows);
         filename = `attendance-${range.from}-to-${range.to}.csv`;
       } else {
-        const yearId = await resolveYear(getPool(), schoolId, query.academicYearId);
-        csv = await feeCsv(getPool(), schoolId, yearId, restricted, query.sectionId);
-        filename = 'fees.csv';
+        const yearId = await resolveYear(
+          getPool(),
+          schoolId,
+          query.academicYearId,
+        );
+        csv = await feeCsv(
+          getPool(),
+          schoolId,
+          yearId,
+          restricted,
+          query.sectionId,
+        );
+        filename = "fees.csv";
       }
 
       // Exports contain student contact and financial data, so record who
@@ -110,9 +157,9 @@ export async function registerReportRoutes(app: FastifyInstance): Promise<void> 
       await recordAudit(getPool(), {
         schoolId,
         actorUserId: actor.userId,
-        action: 'reports.exported',
-        entityType: 'report',
-        outcome: 'success',
+        action: "reports.exported",
+        entityType: "report",
+        outcome: "success",
         after: {
           type: query.type,
           academicYearId: query.academicYearId ?? null,
@@ -120,14 +167,14 @@ export async function registerReportRoutes(app: FastifyInstance): Promise<void> 
           from: query.from ?? null,
           to: query.to ?? null,
           filename,
-          bytes: Buffer.byteLength(csv, 'utf8'),
+          bytes: Buffer.byteLength(csv, "utf8"),
         },
         ...requestMeta(request),
       });
 
       return reply
-        .header('content-type', 'text/csv; charset=utf-8')
-        .header('content-disposition', `attachment; filename="${filename}"`)
+        .header("content-type", "text/csv; charset=utf-8")
+        .header("content-disposition", `attachment; filename="${filename}"`)
         .send(`\uFEFF${csv}`);
     },
   );
@@ -136,7 +183,7 @@ export async function registerReportRoutes(app: FastifyInstance): Promise<void> 
 /* --------------------------------- queries -------------------------------- */
 
 async function resolveYear(
-  client: Pick<pg.Pool, 'query'>,
+  client: Pick<pg.Pool, "query">,
   schoolId: string,
   requested: string | undefined,
 ): Promise<string | null> {
@@ -149,7 +196,7 @@ async function resolveYear(
 }
 
 async function resolveRange(
-  client: Pick<pg.Pool, 'query'>,
+  client: Pick<pg.Pool, "query">,
   schoolId: string,
   query: { from?: string; to?: string; academicYearId?: string },
 ): Promise<{ from: string; to: string }> {
@@ -159,7 +206,7 @@ async function resolveRange(
 
   if ((!from || !to) && yearId) {
     const { rows } = await client.query<{ starts_on: string; ends_on: string }>(
-      'SELECT starts_on, ends_on FROM academic_years WHERE school_id = $1 AND id = $2',
+      "SELECT starts_on, ends_on FROM academic_years WHERE school_id = $1 AND id = $2",
       [schoolId, yearId],
     );
     if (rows[0]) {
@@ -173,22 +220,22 @@ async function resolveRange(
   from ??= new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
   to ??= new Date().toISOString().slice(0, 10);
   if (to < from) {
-    throw badRequest('The end date must be on or after the start date', {
-      to: ['Choose an end date after the start date'],
+    throw badRequest("The end date must be on or after the start date", {
+      to: ["Choose an end date after the start date"],
     });
   }
   return { from, to };
 }
 
 async function attendanceReport(
-  client: Pick<pg.Pool, 'query'>,
+  client: Pick<pg.Pool, "query">,
   schoolId: string,
   from: string,
   to: string,
   restricted: string[] | null,
 ): Promise<AttendanceReport> {
   const params: unknown[] = [schoolId, from, to];
-  let filter = '';
+  let filter = "";
   if (restricted) {
     params.push(restricted);
     filter = `AND sec.id = ANY($${params.length}::uuid[])`;
@@ -235,7 +282,9 @@ async function attendanceReport(
       const late = toNumber(row.late);
       const halfDay = toNumber(row.half_day);
       const rate =
-        totalMarked === 0 ? 0 : ((present + late + halfDay * 0.5) / totalMarked) * 100;
+        totalMarked === 0
+          ? 0
+          : ((present + late + halfDay * 0.5) / totalMarked) * 100;
       return {
         sectionId: row.section_id,
         className: row.class_name,
@@ -253,28 +302,28 @@ async function attendanceReport(
 }
 
 async function feeReport(
-  client: Pick<pg.Pool, 'query'>,
+  client: Pick<pg.Pool, "query">,
   schoolId: string,
   yearId: string | null,
   restricted: string[] | null,
 ): Promise<FeeReport> {
   const params: unknown[] = [schoolId];
-  let yearFilter = '';
+  let yearFilter = "";
   if (yearId) {
     params.push(yearId);
     yearFilter = `AND ch.academic_year_id = $${params.length}`;
   }
-  let scopeFilter = '';
+  let scopeFilter = "";
   if (restricted) {
     params.push(restricted);
     scopeFilter = `AND EXISTS (
-      SELECT 1 FROM enrollments e WHERE e.student_id = ch.student_id
+      SELECT 1 FROM enrollments e WHERE e.school_id = ch.school_id AND e.student_id = ch.student_id
       AND e.enrollment_status = 'active' AND e.section_id = ANY($${params.length}::uuid[]))`;
   }
   const collected = `COALESCE((
     SELECT sum(pa.amount) FROM payment_allocations pa
-    JOIN payments p ON p.id = pa.payment_id AND p.status = 'recorded'
-    WHERE pa.charge_id = ch.id
+    JOIN payments p ON p.id = pa.payment_id AND p.school_id = pa.school_id AND p.status = 'recorded'
+    WHERE pa.school_id = ch.school_id AND pa.charge_id = ch.id
   ), 0)`;
 
   const byHead = await client.query<{
@@ -306,7 +355,7 @@ async function feeReport(
      FROM student_charges ch
      JOIN LATERAL (
        SELECT e.class_id FROM enrollments e
-       WHERE e.student_id = ch.student_id AND e.enrollment_status = 'active'
+       WHERE e.school_id = ch.school_id AND e.student_id = ch.student_id AND e.enrollment_status = 'active'
        ORDER BY e.starts_on DESC LIMIT 1
      ) e ON true
      JOIN classes c ON c.id = e.class_id AND c.school_id = ch.school_id
@@ -317,12 +366,16 @@ async function feeReport(
   );
 
   const methodParams: unknown[] = [schoolId];
-  let methodYear = '';
+  let methodYear = "";
   if (yearId) {
     methodParams.push(yearId);
-    methodYear = 'AND p.academic_year_id = $2';
+    methodYear = "AND p.academic_year_id = $2";
   }
-  const byMethod = await client.query<{ method: string; amount: string; count: string }>(
+  const byMethod = await client.query<{
+    method: string;
+    amount: string;
+    count: string;
+  }>(
     `SELECT p.method, COALESCE(sum(p.amount), 0)::text AS amount, count(*)::text AS count
      FROM payments p
      WHERE p.school_id = $1 AND p.status = 'recorded' ${methodYear}
@@ -363,14 +416,14 @@ async function feeReport(
 }
 
 async function studentCsv(
-  client: Pick<pg.Pool, 'query'>,
+  client: Pick<pg.Pool, "query">,
   schoolId: string,
   yearId: string | null,
   restricted: string[] | null,
   sectionId: string | undefined,
 ): Promise<string> {
   const params: unknown[] = [schoolId];
-  const conditions = ['st.school_id = $1'];
+  const conditions = ["st.school_id = $1"];
   if (yearId) {
     params.push(yearId);
     conditions.push(`en.academic_year_id = $${params.length}`);
@@ -400,38 +453,38 @@ async function studentCsv(
      LEFT JOIN LATERAL (
        SELECT e.class_id, e.section_id, e.academic_year_id, e.id
        FROM enrollments e
-       WHERE e.student_id = st.id AND e.enrollment_status = 'active'
+       WHERE e.school_id = st.school_id AND e.student_id = st.id AND e.enrollment_status = 'active'
        ORDER BY e.starts_on DESC LIMIT 1
      ) en ON true
-     LEFT JOIN classes c ON c.id = en.class_id
-     LEFT JOIN sections sec ON sec.id = en.section_id
-     WHERE ${conditions.join(' AND ')}
+     LEFT JOIN classes c ON c.id = en.class_id AND c.school_id = st.school_id
+     LEFT JOIN sections sec ON sec.id = en.section_id AND sec.school_id = st.school_id
+     WHERE ${conditions.join(" AND ")}
      ORDER BY c.grade_order NULLS LAST, sec.name, st.first_name, st.last_name`,
     params,
   );
 
   return toCsv([
-    ['Admission no', 'Student', 'Class', 'Section', 'Date of birth', 'Status'],
+    ["Admission no", "Student", "Class", "Section", "Date of birth", "Status"],
     ...rows.map((row) => [
       row.admission_number,
       fullName(row.first_name, row.middle_name, row.last_name),
-      row.class_name ?? '',
-      row.section_name ?? '',
-      row.date_of_birth ? toIsoDate(row.date_of_birth) : '',
+      row.class_name ?? "",
+      row.section_name ?? "",
+      row.date_of_birth ? toIsoDate(row.date_of_birth) : "",
       row.status,
     ]),
   ]);
 }
 
 async function feeCsv(
-  client: Pick<pg.Pool, 'query'>,
+  client: Pick<pg.Pool, "query">,
   schoolId: string,
   yearId: string | null,
   restricted: string[] | null,
   sectionId: string | undefined,
 ): Promise<string> {
   const params: unknown[] = [schoolId];
-  const conditions = ['ch.school_id = $1'];
+  const conditions = ["ch.school_id = $1"];
   if (yearId) {
     params.push(yearId);
     conditions.push(`ch.academic_year_id = $${params.length}`);
@@ -439,14 +492,14 @@ async function feeCsv(
   if (sectionId) {
     params.push(sectionId);
     conditions.push(
-      `EXISTS (SELECT 1 FROM enrollments e WHERE e.student_id = ch.student_id
+      `EXISTS (SELECT 1 FROM enrollments e WHERE e.school_id = ch.school_id AND e.student_id = ch.student_id
        AND e.enrollment_status = 'active' AND e.section_id = $${params.length})`,
     );
   }
   if (restricted) {
     params.push(restricted);
     conditions.push(
-      `EXISTS (SELECT 1 FROM enrollments e2 WHERE e2.student_id = ch.student_id
+      `EXISTS (SELECT 1 FROM enrollments e2 WHERE e2.school_id = ch.school_id AND e2.student_id = ch.student_id
        AND e2.enrollment_status = 'active' AND e2.section_id = ANY($${params.length}::uuid[]))`,
     );
   }
@@ -460,41 +513,44 @@ async function feeCsv(
     description: string;
     amount: string;
     concession_amount: string;
+    write_off_amount: string;
     due_on: string;
     paid: string;
   }>(
     `SELECT st.admission_number, st.first_name, st.middle_name, st.last_name,
             fh.name AS fee_head_name, ch.description, ch.amount, ch.concession_amount,
-            ch.due_on,
+            ch.write_off_amount, ch.due_on,
             COALESCE((
               SELECT sum(pa.amount) FROM payment_allocations pa
-              JOIN payments p ON p.id = pa.payment_id AND p.status = 'recorded'
-              WHERE pa.charge_id = ch.id
+              JOIN payments p ON p.id = pa.payment_id AND p.school_id = pa.school_id AND p.status = 'recorded'
+              WHERE pa.school_id = ch.school_id AND pa.charge_id = ch.id
             ), 0)::text AS paid
      FROM student_charges ch
      JOIN students st ON st.id = ch.student_id AND st.school_id = ch.school_id
      JOIN fee_heads fh ON fh.id = ch.fee_head_id AND fh.school_id = ch.school_id
-     WHERE ${conditions.join(' AND ')}
+     WHERE ${conditions.join(" AND ")}
      ORDER BY st.first_name, st.last_name, ch.due_on`,
     params,
   );
 
   return toCsv([
     [
-      'Admission no',
-      'Student',
-      'Fee head',
-      'Description',
-      'Amount',
-      'Concession',
-      'Net',
-      'Paid',
-      'Balance',
-      'Due on',
+      "Admission no",
+      "Student",
+      "Fee head",
+      "Description",
+      "Amount",
+      "Concession",
+      "Write-off",
+      "Net",
+      "Paid",
+      "Balance",
+      "Due on",
     ],
     ...rows.map((row) => {
       const amount = toNumber(row.amount);
       const concession = toNumber(row.concession_amount);
+      const writeOff = toNumber(row.write_off_amount);
       const paid = toNumber(row.paid);
       return [
         row.admission_number,
@@ -503,9 +559,10 @@ async function feeCsv(
         row.description,
         amount.toFixed(2),
         concession.toFixed(2),
-        (amount - concession).toFixed(2),
+        writeOff.toFixed(2),
+        (amount - concession - writeOff).toFixed(2),
         paid.toFixed(2),
-        (amount - concession - paid).toFixed(2),
+        (amount - concession - writeOff - paid).toFixed(2),
         toIsoDate(row.due_on),
       ];
     }),
@@ -519,10 +576,10 @@ function toCsv(rows: string[][]): string {
     .map((row) =>
       row
         .map((value) => {
-          const text = String(value ?? '');
+          const text = String(value ?? "");
           return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
         })
-        .join(','),
+        .join(","),
     )
-    .join('\r\n');
+    .join("\r\n");
 }

@@ -46,7 +46,7 @@ export function StudentDetailPage(): ReactNode {
   const schoolId = useSchoolId();
   const timeZone = useSchoolTimezone();
   const { id } = useParams<{ id: string }>();
-  const { can } = useAuth();
+  const { can, membership } = useAuth();
   const toast = useToast();
   const queryClient = useQueryClient();
   const [dialog, setDialog] = useState<
@@ -127,6 +127,9 @@ export function StudentDetailPage(): ReactNode {
         }
         actions={
           <>
+            <Button variant="secondary" onClick={() => window.print()}>
+              Print admission summary
+            </Button>
             <Button variant="secondary" onClick={() => setDialog("identity")}>
               Identity card
             </Button>
@@ -153,12 +156,125 @@ export function StudentDetailPage(): ReactNode {
       {dialog === "identity" && (
         <StudentIdentityCard student={record} onClose={() => setDialog(null)} />
       )}
+      <section
+        className="print-surface print-overlay print-only hidden"
+        aria-label="Admission summary"
+      >
+        <header className="mb-6 border-b border-slate-300 pb-4">
+          <p className="text-xl font-bold">
+            {membership?.schoolName ?? "School"}
+          </p>
+          <h1 className="mt-3 text-2xl font-bold">
+            Admission / student profile summary
+          </h1>
+          <p className="mt-1 text-sm">
+            {record.admissionNumber} · {record.status}
+          </p>
+        </header>
+        <section className="mb-6">
+          <h2 className="mb-2 text-lg font-bold">Student</h2>
+          <dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+            <PrintRow label="Name" value={name} />
+            <PrintRow
+              label="Date of birth"
+              value={formatDate(record.dateOfBirth)}
+            />
+            <PrintRow label="Admission number" value={record.admissionNumber} />
+            <PrintRow label="Status" value={record.status} />
+            <PrintRow
+              label="Blood group"
+              value={record.bloodGroup ?? "Not recorded"}
+            />
+            <PrintRow
+              label="Emergency contact"
+              value={record.emergencyContact ?? "Not recorded"}
+            />
+            <PrintRow
+              label="Address"
+              value={
+                [
+                  record.homeAddress,
+                  record.city,
+                  record.state,
+                  record.postalCode,
+                ]
+                  .filter(Boolean)
+                  .join(", ") || "Not recorded"
+              }
+            />
+          </dl>
+        </section>
+        <section className="mb-6">
+          <h2 className="mb-2 text-lg font-bold">Enrollment</h2>
+          {record.enrollments.length ? (
+            <table>
+              <thead>
+                <tr>
+                  <th>Academic year</th>
+                  <th>Class</th>
+                  <th>Section</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {record.enrollments.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>{entry.academicYearName}</td>
+                    <td>{entry.className}</td>
+                    <td>{entry.sectionName}</td>
+                    <td>{entry.enrollmentStatus}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm">No enrollment recorded.</p>
+          )}
+        </section>
+        <section>
+          <h2 className="mb-2 text-lg font-bold">Guardians</h2>
+          {record.guardians.length ? (
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Relationship</th>
+                  <th>Contact</th>
+                  <th>Portal access</th>
+                </tr>
+              </thead>
+              <tbody>
+                {record.guardians.map((guardian) => (
+                  <tr key={guardian.id}>
+                    <td>
+                      {fullName(guardian.firstName, null, guardian.lastName)}
+                    </td>
+                    <td>{guardian.relationshipType}</td>
+                    <td>
+                      {[guardian.phone, guardian.email]
+                        .filter(Boolean)
+                        .join(" · ") || "Not recorded"}
+                    </td>
+                    <td>{guardian.portalAccessStatus}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm">No guardian linked.</p>
+          )}
+        </section>
+      </section>
       <div className="grid gap-6 lg:grid-cols-[1fr_1.25fr]">
         <Card>
           <CardHeader title="Profile" description="Core identity fields" />
           <dl className="divide-y divide-slate-100">
             <Row label="Legal name" value={name} />
             <Row label="Date of birth" value={formatDate(record.dateOfBirth)} />
+            <Row
+              label="Gender"
+              value={record.gender?.replaceAll("_", " ") ?? "Not recorded"}
+            />
             <Row
               label="Admission number"
               value={
@@ -174,6 +290,18 @@ export function StudentDetailPage(): ReactNode {
             <Row
               label="Emergency contact"
               value={record.emergencyContact ?? "Not recorded"}
+            />
+            <Row
+              label="Aadhaar last four"
+              value={record.aadhaarLast4 ?? "Not recorded"}
+            />
+            <Row
+              label="Previous class"
+              value={record.previousClass ?? "Not recorded"}
+            />
+            <Row
+              label="Previous school"
+              value={record.previousSchoolName ?? "Not recorded"}
             />
             <Row
               label="Status"
@@ -216,10 +344,68 @@ export function StudentDetailPage(): ReactNode {
                       .filter(Boolean)
                       .join(" · ") || "No contact details"}
                   </p>
+                  {guardian.occupation && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Occupation: {guardian.occupation}
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>
           )}
+        </Card>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader
+            title="Address and safety"
+            description="Current address and emergency details on the admission record."
+          />
+          <dl className="divide-y divide-slate-100">
+            <Row
+              label="Home address"
+              value={record.homeAddress ?? "Not recorded"}
+            />
+            <Row
+              label="City / state / PIN"
+              value={
+                [record.city, record.state, record.postalCode]
+                  .filter(Boolean)
+                  .join(", ") || "Not recorded"
+              }
+            />
+            {record.medicalInformation && can("students.profile.edit") && (
+              <Row
+                label="Medical information"
+                value={record.medicalInformation}
+              />
+            )}
+          </dl>
+        </Card>
+        <Card>
+          <CardHeader
+            title="Admission documents"
+            description="Checklist status. File attachments are not stored in this checklist."
+          />
+          <dl className="divide-y divide-slate-100">
+            {[
+              ["Student photo", "studentPhoto"],
+              ["Birth certificate", "birthCertificate"],
+              ["Aadhaar card", "aadhaarCard"],
+              ["Previous report card", "previousReportCard"],
+              ["Transfer certificate", "transferCertificate"],
+              ["Migration certificate", "migrationCertificate"],
+              ["Address proof", "addressProof"],
+            ].map(([label, key]) => (
+              <Row
+                key={key}
+                label={label}
+                value={(
+                  record.admissionDocuments?.[key] ?? "not_provided"
+                ).replaceAll("_", " ")}
+              />
+            ))}
+          </dl>
         </Card>
       </div>
 
@@ -309,6 +495,21 @@ export function StudentDetailPage(): ReactNode {
           }}
         />
       )}
+    </div>
+  );
+}
+
+function PrintRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}): ReactNode {
+  return (
+    <div>
+      <dt className="text-slate-500">{label}</dt>
+      <dd className="font-medium">{value}</dd>
     </div>
   );
 }
@@ -476,12 +677,7 @@ function EditStudentDialog({
             hint="Status changes use the authorised admission/lifecycle workflow; profile edits keep the current status."
             error={errors.status?.[0]}
           >
-            <Select
-              id="edit-status"
-              disabled
-              value={status}
-              
-            >
+            <Select id="edit-status" disabled value={status}>
               {STUDENT_STATUSES.map((entry) => (
                 <option key={entry} value={entry}>
                   {entry}

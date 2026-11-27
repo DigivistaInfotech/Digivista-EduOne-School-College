@@ -184,6 +184,7 @@ describe("E2E Operational Journeys across 30 Modules", () => {
           firstName: "Ananya",
           lastName: "Sundaram",
           dateOfBirth: "2020-05-14",
+          gender: 'female', homeAddress: '12 Test Road', city: 'New Delhi', state: 'Delhi', postalCode: '110001', emergencyContact: '+91 98765 44332',
           academicYearId,
           sectionId: nurserySectionId,
           startsOn: "2026-04-01",

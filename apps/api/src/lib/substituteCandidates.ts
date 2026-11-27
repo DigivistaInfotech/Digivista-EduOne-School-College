@@ -55,6 +55,7 @@ export async function substituteCandidates(
  WHERE u.id<>t.teacher_user_id AND EXISTS(SELECT 1 FROM user_role_assignments a JOIN roles r ON r.id=a.role_id
  WHERE a.user_id=u.id AND a.school_id=$1 AND r.code='teacher' AND a.revoked_at IS NULL
  AND a.valid_from<=now() AND (a.valid_to IS NULL OR a.valid_to>now()))
+ AND (a.scope_type='school' OR (a.scope_type='section' AND a.scope_id=t.section_id) OR (a.scope_type='class' AND EXISTS(SELECT 1 FROM sections scoped_sec WHERE scoped_sec.school_id=$1 AND scoped_sec.id=t.section_id AND scoped_sec.class_id=a.scope_id)))
  ) SELECT *, ("subjectVerified" AND NOT busy AND NOT unavailable AND "weeklyPeriods"<"maxWeeklyPeriods") AS eligible
  FROM candidates ORDER BY eligible DESC,"weeklyPeriods","displayName"`,
     [schoolId, slotId, date],

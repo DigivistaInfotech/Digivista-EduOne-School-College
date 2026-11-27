@@ -1376,7 +1376,7 @@ export interface SavedReport {
 
 export interface ImportBatch {
   id: string;
-  entityType: 'students' | 'library_books' | 'vendors';
+  entityType: 'students' | 'library_books' | 'vendors' | 'academic_years' | 'classes' | 'sections' | 'subjects' | 'subject_offerings' | 'staff' | 'rooms' | 'timetable_periods' | 'fee_heads' | 'institution_masters';
   filename: string;
   status: 'previewed' | 'committed' | 'cancelled';
   totalRows: number;
@@ -1407,7 +1407,7 @@ export const savedReportInput = z.object({
 export const savedReportUpdate = savedReportInput.partial();
 
 export const importPreviewInput = z.object({
-  entityType: z.enum(['students', 'library_books', 'vendors']),
+  entityType: z.enum(['students', 'library_books', 'vendors', 'academic_years', 'classes', 'sections', 'subjects', 'subject_offerings', 'staff', 'rooms', 'timetable_periods', 'fee_heads', 'institution_masters']),
   filename: nonEmptyText(255),
   csv: z.string().min(1, 'Paste or upload a CSV file').max(1_000_000),
 });

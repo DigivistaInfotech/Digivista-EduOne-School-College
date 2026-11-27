@@ -1,4 +1,4 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
 /*
   Asterleaf Campus · DigiVista Education Suite
@@ -19,18 +19,19 @@
 
 @theme {
   --font-sans:
-    'Plus Jakarta Sans', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
+    "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-display:
-    'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
 
   /* Asterleaf Core Brand Colors */
   --color-midnight: #182944;
-  --color-lagoon: #087F83;
-  --color-mint: #DDF4EC;
-  --color-amber: #F6B84B;
-  --color-orchid: #7654C7;
-  --color-page: #F3F6FA;
+  --color-lagoon: #087f83;
+  --color-mint: #ddf4ec;
+  --color-amber: #f6b84b;
+  --color-orchid: #7654c7;
+  --color-page: #f3f6fa;
 
   /* Brand Teal/Lagoon scales */
   --color-brand-50: #f0fdfa;
@@ -38,14 +39,14 @@
   --color-brand-200: #99f6e4;
   --color-brand-300: #5eead4;
   --color-brand-400: #2dd4bf;
-  --color-brand-500: #087F83;
+  --color-brand-500: #087f83;
   --color-brand-600: #066669;
   --color-brand-700: #055356;
   --color-brand-800: #044245;
   --color-brand-900: #182944;
 
   /* Neutrals */
-  --color-slate-50: #F3F6FA;
+  --color-slate-50: #f3f6fa;
   --color-slate-100: #eef2f6;
   --color-slate-200: #e2e8f0;
   --color-slate-300: #cbd5e1;
@@ -58,12 +59,12 @@
   --color-slate-950: #0f172a;
 
   /* Compatibility aliases */
-  --color-coral: #087F83;
-  --color-sun: #F6B84B;
+  --color-coral: #087f83;
+  --color-sun: #f6b84b;
   --color-ink: #182944;
-  --color-cream: #F3F6FA;
+  --color-cream: #f3f6fa;
   --color-sky: #0284c7;
-  --color-grape: #7654C7;
+  --color-grape: #7654c7;
   --color-bubble: #ec4899;
 
   --animate-marquee: marquee 35s linear infinite;
@@ -95,20 +96,20 @@
   }
 
   body {
-    background-color: #F3F6FA;
+    background-color: #f3f6fa;
     color: #182944;
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
 
   :focus-visible {
-    outline: 2px solid #087F83;
+    outline: 2px solid #087f83;
     outline-offset: 2px;
   }
 
   ::selection {
-    background-color: #DDF4EC;
-    color: #087F83;
+    background-color: #ddf4ec;
+    color: #087f83;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -179,9 +180,9 @@
     background: linear-gradient(
       90deg,
       #182944 0%,
-      #087F83 40%,
-      #DDF4EC 70%,
-      #7654C7 100%
+      #087f83 40%,
+      #ddf4ec 70%,
+      #7654c7 100%
     );
   }
 
@@ -189,16 +190,16 @@
     height: 3px;
     background: linear-gradient(
       90deg,
-      #087F83 0%,
-      #DDF4EC 40%,
-      #F6B84B 75%,
-      #7654C7 100%
+      #087f83 0%,
+      #ddf4ec 40%,
+      #f6b84b 75%,
+      #7654c7 100%
     );
   }
 
   .accent {
     font-weight: 700;
-    color: #087F83;
+    color: #087f83;
   }
 
   .accent-plain {
@@ -211,5 +212,95 @@
   .scroll-thin::-webkit-scrollbar-thumb {
     background: rgba(24, 41, 68, 0.2);
     border-radius: 999px;
+  }
+}
+
+@media print {
+  @page {
+    size: auto;
+    margin: 14mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #111827 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .print-surface,
+  .print-surface * {
+    visibility: visible !important;
+  }
+
+  .print-surface {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #111827 !important;
+    box-shadow: none !important;
+  }
+
+  .print-surface.print-overlay {
+    position: fixed !important;
+    inset: 0 auto auto 0 !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .print-hide {
+    display: none !important;
+  }
+
+  .print-surface table {
+    width: 100%;
+    border-collapse: collapse;
+    break-inside: auto;
+  }
+
+  .print-surface thead {
+    display: table-header-group;
+  }
+
+  .print-surface tfoot {
+    display: table-footer-group;
+  }
+
+  .print-surface tr,
+  .print-surface img,
+  .print-surface .keep-together {
+    break-inside: avoid;
+  }
+
+  .print-surface th,
+  .print-surface td {
+    border-bottom: 1px solid #d1d5db;
+    padding: 6px 8px;
+    color: #111827 !important;
+  }
+
+  .print-surface button:not(.timetable-subject-card) {
+    appearance: none !important;
+    background: transparent !important;
+    border-color: transparent !important;
+    color: #111827 !important;
+    text-align: left;
+  }
+
+  .print-surface .timetable-subject-card {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 }

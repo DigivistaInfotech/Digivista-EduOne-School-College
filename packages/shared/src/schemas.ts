@@ -138,11 +138,40 @@ export const studentStatus = z.enum([
 export const guardianInput = z.object({
   firstName: nonEmptyText(100),
   lastName: optionalText(100),
+  occupation: optionalText(120),
   email: email.optional(),
   phone: phone.optional(),
   relationshipType: nonEmptyText(40),
   isPrimary: z.boolean().default(false),
   portalAccessStatus: z.enum(['pending', 'verified', 'revoked']).default('pending'),
+}).refine((guardian) => Boolean(guardian.email || guardian.phone), {
+  message: 'Enter an email address or phone number for the guardian',
+  path: ['email'],
+});
+
+export const admissionDocumentStatus = z.enum([
+  'not_provided',
+  'received',
+  'verified',
+  'not_applicable',
+]);
+
+export const admissionDocumentsInput = z.object({
+  studentPhoto: admissionDocumentStatus.default('not_provided'),
+  birthCertificate: admissionDocumentStatus.default('not_provided'),
+  aadhaarCard: admissionDocumentStatus.default('not_provided'),
+  previousReportCard: admissionDocumentStatus.default('not_provided'),
+  transferCertificate: admissionDocumentStatus.default('not_provided'),
+  migrationCertificate: admissionDocumentStatus.default('not_provided'),
+  addressProof: admissionDocumentStatus.default('not_provided'),
+}).default({
+  studentPhoto: 'not_provided',
+  birthCertificate: 'not_provided',
+  aadhaarCard: 'not_provided',
+  previousReportCard: 'not_provided',
+  transferCertificate: 'not_provided',
+  migrationCertificate: 'not_provided',
+  addressProof: 'not_provided',
 });
 
 export const studentAdmissionInput = z.object({
@@ -150,7 +179,19 @@ export const studentAdmissionInput = z.object({
   firstName: nonEmptyText(100),
   middleName: optionalText(100),
   lastName: optionalText(100),
-  dateOfBirth: isoDate.optional(),
+  dateOfBirth: isoDate,
+  gender: z.enum(['female', 'male', 'other', 'not_disclosed']),
+  aadhaarLast4: z.string().trim().regex(/^\d{4}$/, 'Enter only the last four digits').optional(),
+  previousClass: optionalText(80),
+  previousSchoolName: optionalText(160),
+  homeAddress: nonEmptyText(600),
+  city: nonEmptyText(100),
+  state: nonEmptyText(100),
+  postalCode: z.string().trim().regex(/^[1-9]\d{5}$/, 'Enter a valid six-digit Indian PIN code'),
+  emergencyContact: phone,
+  bloodGroup: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']).optional(),
+  medicalInformation: optionalText(2000),
+  admissionDocuments: admissionDocumentsInput,
   academicYearId: uuid,
   sectionId: uuid,
   startsOn: isoDate,
@@ -160,6 +201,16 @@ export const studentAdmissionInput = z.object({
 export const studentUpdate = z.object({
   bloodGroup: z.enum(['A+','A-','B+','B-','AB+','AB-','O+','O-']).nullable().optional(),
   emergencyContact: z.string().trim().max(100).nullable().optional(),
+  gender: z.enum(['female', 'male', 'other', 'not_disclosed']).optional(),
+  aadhaarLast4: z.string().trim().regex(/^\d{4}$/).nullable().optional(),
+  previousClass: optionalText(80).nullable().optional(),
+  previousSchoolName: optionalText(160).nullable().optional(),
+  homeAddress: optionalText(600).nullable().optional(),
+  city: optionalText(100).nullable().optional(),
+  state: optionalText(100).nullable().optional(),
+  postalCode: z.string().trim().regex(/^[1-9]\d{5}$/).nullable().optional(),
+  medicalInformation: optionalText(2000).nullable().optional(),
+  admissionDocuments: admissionDocumentsInput.optional(),
   firstName: nonEmptyText(100).optional(),
   middleName: optionalText(100),
   lastName: optionalText(100),
@@ -253,6 +304,7 @@ export const timetableSlotInput = z.object({
   subjectId: uuid,
   teacherUserId: uuid,
   roomId: uuid.nullable().optional(),
+  notes: optionalText(500),
 });
 
 /* ---------------------------------- fees ---------------------------------- */
@@ -454,6 +506,8 @@ export const leaveReviewInput = z.object({
 export const noticeInput = z.object({
   title: nonEmptyText(160),
   body: z.string().trim().min(5, 'Write the notice text').max(5000),
+  category: z.enum(['general', 'academic', 'examination', 'holiday', 'fee', 'attendance', 'parent_meeting', 'school_event', 'competition', 'admission', 'transport', 'library', 'health_safety', 'achievement', 'staff', 'emergency']).default('general'),
+  priority: z.enum(['low', 'normal', 'high', 'urgent']).default('normal'),
   audience: z.enum(['all', 'staff', 'parents', 'students']).default('all'),
   pinned: z.boolean().default(false),
   expiresOn: isoDate.nullable().optional(),
@@ -462,6 +516,8 @@ export const noticeInput = z.object({
 export const noticeUpdate = z.object({
   title: nonEmptyText(160).optional(),
   body: z.string().trim().min(5, 'Write the notice text').max(5000).optional(),
+  category: z.enum(['general', 'academic', 'examination', 'holiday', 'fee', 'attendance', 'parent_meeting', 'school_event', 'competition', 'admission', 'transport', 'library', 'health_safety', 'achievement', 'staff', 'emergency']).optional(),
+  priority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
   audience: z.enum(['all', 'staff', 'parents', 'students']).optional(),
   pinned: z.boolean().optional(),
   expiresOn: isoDate.nullable().optional(),

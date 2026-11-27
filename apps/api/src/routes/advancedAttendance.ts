@@ -689,9 +689,8 @@ export async function advancedAttendanceRoutes(
     },
     async (request) => {
       const { schoolId } = schoolParams.parse(request.params);
-      const queryDate =
-        (request.query as { date?: string })?.date ||
-        new Date().toISOString().slice(0, 10);
+      const { date } = z.object({ date: z.string().date().optional() }).parse(request.query);
+      const queryDate = date ?? new Date().toISOString().slice(0, 10);
       const pool = getPool();
       const sections = visibleSectionIds(getActor(request));
 
@@ -708,11 +707,11 @@ export async function advancedAttendanceRoutes(
          FROM timetable_substitutions tsub
          JOIN timetable_slots ts ON ts.id = tsub.slot_id
          JOIN timetable_periods tp ON tp.id = ts.period_id
-         JOIN subjects sub ON sub.id = ts.subject_id
-         JOIN sections sec ON sec.id = ts.section_id
+         JOIN subjects sub ON sub.school_id=ts.school_id AND sub.id = ts.subject_id
+         JOIN sections sec ON sec.school_id=ts.school_id AND sec.id = ts.section_id
          JOIN users orig_u ON orig_u.id = tsub.original_teacher_user_id
          JOIN users subst_u ON subst_u.id = tsub.substitute_teacher_user_id
-         WHERE tsub.school_id = $1 AND tsub.substitution_date = $2 AND ($3::uuid[] IS NULL OR ts.section_id=ANY($3::uuid[]))
+         WHERE tsub.school_id = $1 AND tsub.substitution_date = $2 AND tsub.status='active' AND ($3::uuid[] IS NULL OR ts.section_id=ANY($3::uuid[]))
          ORDER BY tp.sequence_no ASC`,
         [schoolId, queryDate, sections],
       );

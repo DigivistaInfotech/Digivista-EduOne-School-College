@@ -19,7 +19,7 @@ import { z } from 'zod';
 export function normalizeIndianMobile(raw: string): string | null {
   if (!raw || typeof raw !== 'string') return null;
   const cleaned = raw.replace(/[\s\-().]/g, '');
-  
+
   // Match +91, 91, or 0 prefix followed by 10 digits starting with 6-9
   const match = cleaned.match(/^(?:\+91|91|0)?([6-9]\d{9})$/);
   if (!match || !match[1]) return null;

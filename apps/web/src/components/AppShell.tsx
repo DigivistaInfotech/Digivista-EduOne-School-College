@@ -1,7 +1,7 @@
 import type { Permission } from "@erp/shared";
 import { INDIA_STATES } from "@erp/shared/regional";
 import { useQuery } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Link, Navigate, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AsterleafBrand } from "./AsterleafLogo";
@@ -17,6 +17,9 @@ export function AppShell(): ReactNode {
   const { user, membership, memberships, logout, setActiveSchool } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [navigationSearch, setNavigationSearch] = useState("");
+  const desktopNavigationSearchRef = useRef<HTMLInputElement>(null);
+  const mobileNavigationSearchRef = useRef<HTMLInputElement>(null);
   const location = useLocation();
   const { t, language, choice, setChoice } = useLanguage();
   const regional = useQuery({
@@ -27,6 +30,25 @@ export function AppShell(): ReactNode {
   const state = INDIA_STATES.find(
     (entry) => entry.code === regional.data?.settings.stateCode,
   );
+
+  useEffect(() => {
+    function handleNavigationShortcut(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        (mobileOpen ? mobileNavigationSearchRef : desktopNavigationSearchRef).current?.focus();
+      }
+      if (event.key === "Escape" && (document.activeElement === desktopNavigationSearchRef.current || document.activeElement === mobileNavigationSearchRef.current)) {
+        setNavigationSearch("");
+        (document.activeElement as HTMLElement | null)?.blur();
+      }
+    }
+    window.addEventListener("keydown", handleNavigationShortcut);
+    return () => window.removeEventListener("keydown", handleNavigationShortcut);
+  }, [mobileOpen]);
+
+  useEffect(() => {
+    setNavigationSearch("");
+  }, [location.pathname]);
 
   if (!membership || !user) return <Navigate to="/login" replace />;
 
@@ -41,17 +63,45 @@ export function AppShell(): ReactNode {
           ? item.anyPermission.some((permission) =>
               membership.permissions.includes(permission),
             )
-          : true),
+            : true) &&
+        (!navigationSearch.trim() ||
+          `${t(section.heading)} ${t(section.description)} ${t(item.label)} ${item.to}`
+            .toLocaleLowerCase()
+            .includes(navigationSearch.trim().toLocaleLowerCase())),
     ),
   })).filter((section) => section.items.length > 0);
 
-  const navigation = (
-    <nav className="scroll-thin flex-1 space-y-4 overflow-y-auto px-3 py-4">
-      {visibleSections.map((section) => (
-        <div key={section.heading}>
-          <p className="mb-1.5 px-3 text-[10px] font-extrabold tracking-[0.16em] uppercase text-white/50">
-            {t(section.heading)}
+  const renderNavigation = (searchId: string, searchRef: RefObject<HTMLInputElement | null>) => (
+    <nav className="scroll-thin flex-1 space-y-4 overflow-y-auto px-3 py-4" aria-label="Main navigation">
+      <div className="sticky top-0 z-10 rounded-xl bg-[#182944] pb-2">
+        <label htmlFor={searchId} className="sr-only">Search menu</label>
+        <div className="relative">
+          <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/55" />
+          <input
+            ref={searchRef}
+            id={searchId}
+            type="search"
+            value={navigationSearch}
+            onChange={(event) => setNavigationSearch(event.target.value)}
+            placeholder="Find a page…"
+            autoComplete="off"
+            className="min-h-10 w-full rounded-xl border border-white/15 bg-white/8 py-2 pl-9 pr-12 text-xs font-medium text-white placeholder:text-white/50 focus:border-[#45c7bc] focus:outline-hidden focus:ring-2 focus:ring-[#45c7bc]/30"
+          />
+          <kbd className="absolute right-2 top-1/2 -translate-y-1/2 rounded border border-white/15 px-1.5 py-0.5 text-[9px] text-white/55">Ctrl K</kbd>
+        </div>
+        {navigationSearch.trim() && (
+          <p className="px-2 pt-1.5 text-[10px] text-white/55" aria-live="polite">
+            {visibleSections.reduce((count, section) => count + section.items.length, 0)} matching pages
           </p>
+        )}
+      </div>
+      {visibleSections.map((section) => (
+        <div key={section.heading} className="border-t border-white/10 pt-3 first:border-t-0 first:pt-0">
+          <p className="mb-1.5 flex items-center justify-between gap-2 px-3 text-[10px] font-extrabold tracking-[0.12em] uppercase text-white/60">
+            {t(section.heading)}
+            <span className="rounded-full bg-white/8 px-1.5 py-0.5 text-[9px] font-bold tracking-normal text-white/45">{section.items.length}</span>
+          </p>
+          <p className="mb-2 px-3 text-[10px] leading-4 text-white/40">{t(section.description)}</p>
           <ul className="space-y-1">
             {section.items.map((item) => (
               <li key={item.to}>
@@ -80,6 +130,11 @@ export function AppShell(): ReactNode {
           </ul>
         </div>
       ))}
+      {visibleSections.length === 0 && (
+        <div className="rounded-xl border border-dashed border-white/20 px-3 py-4 text-center text-xs text-white/65">
+          No menu pages match “{navigationSearch}”. Try a shorter search.
+        </div>
+      )}
     </nav>
   );
 
@@ -88,7 +143,7 @@ export function AppShell(): ReactNode {
       {/* Desktop sidebar with Midnight background (#182944) */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col bg-[#182944] text-white lg:flex">
         <BrandHeader />
-        {navigation}
+        {renderNavigation("desktop-navigation-search", desktopNavigationSearchRef)}
         <div className="border-t border-white/10 p-3">
           <SchoolSwitcher
             memberships={memberships}
@@ -109,7 +164,7 @@ export function AppShell(): ReactNode {
           />
           <aside className="relative flex h-full w-72 flex-col bg-[#182944] text-white shadow-2xl">
             <BrandHeader />
-            {navigation}
+            {renderNavigation("mobile-navigation-search", mobileNavigationSearchRef)}
             <div className="border-t border-white/10 p-3">
               <SchoolSwitcher
                 memberships={memberships}

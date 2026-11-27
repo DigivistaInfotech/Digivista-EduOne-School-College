@@ -11,6 +11,7 @@ import {
   type TimetablePeriod,
 } from '@erp/shared';
 import type { FastifyInstance } from 'fastify';
+import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { getActor, requirePermission, requestMeta } from '../auth/guards';
 import { getPool, withTransaction } from '../db';
@@ -91,12 +92,15 @@ export async function registerTimetableRoutes(app: FastifyInstance): Promise<voi
         `SELECT DISTINCT u.id, u.display_name
          FROM users u
          JOIN user_role_assignments ura ON ura.user_id = u.id
+         JOIN roles role ON role.id = ura.role_id AND role.code = 'teacher'
+         JOIN staff st ON st.school_id = ura.school_id AND st.user_id = u.id AND st.status = 'active'
          WHERE ura.school_id = $1 AND ura.revoked_at IS NULL
            AND ura.valid_from <= now()
            AND (ura.valid_to IS NULL OR ura.valid_to > now())
+           AND ($2::uuid IS NULL OR ura.scope_type='school' OR (ura.scope_type='section' AND ura.scope_id=$2) OR (ura.scope_type='class' AND EXISTS(SELECT 1 FROM sections scoped_sec WHERE scoped_sec.school_id=$1 AND scoped_sec.id=$2 AND scoped_sec.class_id=ura.scope_id)))
            AND u.status = 'active'
          ORDER BY u.display_name`,
-        [schoolId],
+        [schoolId, query.sectionId ?? null],
       );
 
       const params: unknown[] = [schoolId, yearId];
@@ -126,20 +130,22 @@ export async function registerTimetableRoutes(app: FastifyInstance): Promise<voi
         teacher_name: string;
         room_id: string | null;
         room_name: string | null;
+        notes: string | null;
       }>(
         `SELECT ts.id, ts.academic_year_id, ts.section_id,
                 c.name AS class_name, sec.name AS section_name,
                 ts.period_id, ts.day_of_week, ts.subject_id, sub.name AS subject_name,
                 ts.teacher_user_id, u.display_name AS teacher_name,
-                ts.room_id, r.name AS room_name
+                ts.room_id, r.name AS room_name, ts.notes
          FROM timetable_slots ts
          JOIN sections sec ON sec.id = ts.section_id AND sec.school_id = ts.school_id
          JOIN classes c ON c.id = sec.class_id AND c.school_id = sec.school_id
          JOIN subjects sub ON sub.id = ts.subject_id AND sub.school_id = ts.school_id
+         JOIN timetable_periods tp ON tp.school_id = ts.school_id AND tp.academic_year_id = ts.academic_year_id AND tp.id = ts.period_id
          JOIN users u ON u.id = ts.teacher_user_id
          LEFT JOIN rooms r ON r.id = ts.room_id AND r.school_id = ts.school_id
          WHERE ${conditions.join(' AND ')}
-         ORDER BY ts.day_of_week, ts.period_id`,
+         ORDER BY ts.day_of_week, tp.sequence_no`,
         params,
       );
 
@@ -171,6 +177,7 @@ export async function registerTimetableRoutes(app: FastifyInstance): Promise<voi
           teacherName: row.teacher_name,
           roomId: row.room_id,
           roomName: row.room_name,
+          notes: row.notes,
         })),
         teachers: teachersResult.rows.map((row) => ({
           id: row.id,
@@ -197,6 +204,7 @@ export async function registerTimetableRoutes(app: FastifyInstance): Promise<voi
           [schoolId, input.academicYearId],
         );
         if (!year.rows[0]) throw notFound('Academic year not found');
+        await assertNoOverlappingPeriod(client, schoolId, input.academicYearId, input.startsAt, input.endsAt);
 
         const { rows } = await client.query<{
           id: string;
@@ -267,6 +275,14 @@ export async function registerTimetableRoutes(app: FastifyInstance): Promise<voi
         const startsAt = input.startsAt ?? row.starts_at;
         const endsAt = input.endsAt ?? row.ends_at;
         assertClockRange(startsAt, endsAt);
+        if (input.isBreak === true && !row.is_break) {
+          const scheduled = await client.query<{ exists: boolean }>(
+            'SELECT EXISTS(SELECT 1 FROM timetable_slots WHERE school_id=$1 AND period_id=$2) AS exists',
+            [schoolId, id],
+          );
+          if (scheduled.rows[0]?.exists) throw badRequest('Remove the lessons using this period before marking it as a break', { isBreak: ['This period still contains scheduled lessons'] });
+        }
+        await assertNoOverlappingPeriod(client, schoolId, row.academic_year_id, startsAt, endsAt, id);
 
         const { rows } = await client.query<{
           id: string;
@@ -496,6 +512,7 @@ export async function registerTimetableRoutes(app: FastifyInstance): Promise<voi
           [schoolId, input.sectionId, input.academicYearId],
         );
         if (!section.rows[0]) throw notFound('Section not found');
+        if (!canAccessSection(actor, input.sectionId)) throw notFound('Section not found');
 
         const period = await client.query<{ id: string; is_break: boolean }>(
           `SELECT id, is_break FROM timetable_periods
@@ -520,10 +537,14 @@ export async function registerTimetableRoutes(app: FastifyInstance): Promise<voi
           `SELECT DISTINCT u.id
            FROM users u
            JOIN user_role_assignments ura ON ura.user_id = u.id
+           JOIN roles role ON role.id = ura.role_id AND role.code = 'teacher'
+           JOIN staff st ON st.school_id = ura.school_id AND st.user_id = u.id AND st.status = 'active'
            WHERE u.id = $1 AND ura.school_id = $2 AND ura.revoked_at IS NULL
+             AND u.status = 'active'
              AND ura.valid_from <= now()
-             AND (ura.valid_to IS NULL OR ura.valid_to > now())`,
-          [input.teacherUserId, schoolId],
+             AND (ura.valid_to IS NULL OR ura.valid_to > now())
+             AND (ura.scope_type='school' OR (ura.scope_type='section' AND ura.scope_id=$3) OR (ura.scope_type='class' AND EXISTS(SELECT 1 FROM sections scoped_sec WHERE scoped_sec.school_id=$2 AND scoped_sec.id=$3 AND scoped_sec.class_id=ura.scope_id)))`,
+          [input.teacherUserId, schoolId, input.sectionId],
         );
         if (!teacher.rows[0]) {
           throw badRequest('Choose a staff member with access to this school', {
@@ -542,8 +563,8 @@ export async function registerTimetableRoutes(app: FastifyInstance): Promise<voi
         const { rows } = await client.query<{ id: string }>(
           `INSERT INTO timetable_slots
              (school_id, academic_year_id, section_id, period_id, day_of_week,
-              subject_id, teacher_user_id, room_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              subject_id, teacher_user_id, room_id, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            RETURNING id`,
           [
             schoolId,
@@ -554,6 +575,7 @@ export async function registerTimetableRoutes(app: FastifyInstance): Promise<voi
             input.subjectId,
             input.teacherUserId,
             input.roomId ?? null,
+            input.notes?.trim() || null,
           ],
         );
 
@@ -591,6 +613,11 @@ export async function registerTimetableRoutes(app: FastifyInstance): Promise<voi
       const actor = getActor(request);
 
       await withTransaction(async (client) => {
+        const section = await client.query<{ section_id: string }>(
+          'SELECT section_id FROM timetable_slots WHERE school_id=$1 AND id=$2',
+          [schoolId, id],
+        );
+        if (!section.rows[0] || !canAccessSection(actor, section.rows[0].section_id)) throw notFound('Lesson not found');
         const { rowCount } = await client.query(
           'DELETE FROM timetable_slots WHERE school_id = $1 AND id = $2',
           [schoolId, id],
@@ -638,4 +665,23 @@ function assertClockRange(startsAt: string, endsAt: string): void {
       endsAt: ['End time must be later than the start time'],
     });
   }
+}
+
+async function assertNoOverlappingPeriod(
+  db: PoolClient,
+  schoolId: string,
+  academicYearId: string,
+  startsAt: string,
+  endsAt: string,
+  exceptId?: string,
+): Promise<void> {
+  const overlap = await db.query(
+    `SELECT EXISTS (
+       SELECT 1 FROM timetable_periods
+       WHERE school_id=$1 AND academic_year_id=$2 AND ($5::uuid IS NULL OR id<>$5)
+         AND starts_at < $4::time AND ends_at > $3::time
+     ) AS exists`,
+    [schoolId, academicYearId, startsAt, endsAt, exceptId ?? null],
+  );
+  if (overlap.rows[0]?.exists) throw badRequest('This period overlaps another period in the academic-year timetable', { startsAt: ['Choose a non-overlapping time range'] });
 }
