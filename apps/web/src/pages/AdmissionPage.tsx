@@ -25,6 +25,7 @@ import {
   Field,
   Icon,
   Input,
+  LinkButton,
   PageHeader,
   Select,
   TableSkeleton,
@@ -34,6 +35,7 @@ interface GuardianDraft {
   key: number;
   firstName: string;
   lastName: string;
+  occupation: string;
   email: string;
   phone: string;
   relationshipType: string;
@@ -41,18 +43,30 @@ interface GuardianDraft {
   portalAccessStatus: string;
 }
 
-function emptyGuardian(key: number, isPrimary: boolean): GuardianDraft {
+function emptyGuardian(key: number, isPrimary: boolean, relationshipType = 'guardian'): GuardianDraft {
   return {
     key,
     firstName: '',
     lastName: '',
+    occupation: '',
     email: '',
     phone: '',
-    relationshipType: 'mother',
+    relationshipType,
     isPrimary,
     portalAccessStatus: 'pending',
   };
 }
+
+const DOCUMENT_ITEMS = [
+  { key: 'studentPhoto', label: 'Student passport-size photo' },
+  { key: 'birthCertificate', label: 'Birth certificate' },
+  { key: 'aadhaarCard', label: 'Aadhaar card (if required)' },
+  { key: 'previousReportCard', label: 'Previous class report card (if applicable)' },
+  { key: 'transferCertificate', label: 'Transfer certificate (if applicable)' },
+  { key: 'migrationCertificate', label: 'Migration certificate (if applicable)' },
+  { key: 'addressProof', label: 'Address proof (if required)' },
+] as const;
+const DOCUMENT_STATUSES = ['not_provided', 'received', 'verified', 'not_applicable'] as const;
 
 export function AdmissionPage(): ReactNode {
   const schoolId = useSchoolId();
@@ -66,12 +80,30 @@ export function AdmissionPage(): ReactNode {
   const [middleName, setMiddleName] = useState('');
   const [lastName, setLastName] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
+  const [gender, setGender] = useState('');
   const [admissionNumber, setAdmissionNumber] = useState('');
+  const [aadhaarLast4, setAadhaarLast4] = useState('');
+  const [previousClass, setPreviousClass] = useState('');
+  const [previousSchoolName, setPreviousSchoolName] = useState('');
+  const [homeAddress, setHomeAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [postalCode, setPostalCode] = useState('');
+  const [emergencyContact, setEmergencyContact] = useState('');
+  const [bloodGroup, setBloodGroup] = useState('');
+  const [medicalInformation, setMedicalInformation] = useState('');
+  const [admissionDocuments, setAdmissionDocuments] = useState<AdmissionInput['admissionDocuments']>({
+    studentPhoto: 'not_provided', birthCertificate: 'not_provided', aadhaarCard: 'not_provided',
+    previousReportCard: 'not_provided', transferCertificate: 'not_provided',
+    migrationCertificate: 'not_provided', addressProof: 'not_provided',
+  });
   const [academicYearId, setAcademicYearId] = useState('');
   const [sectionId, setSectionId] = useState('');
   const [startsOn, setStartsOn] = useState(todayIso(timeZone));
-  const [guardians, setGuardians] = useState<GuardianDraft[]>([emptyGuardian(1, true)]);
-  const [nextKey, setNextKey] = useState(2);
+  const [guardians, setGuardians] = useState<GuardianDraft[]>([
+    emptyGuardian(1, true, 'father'), emptyGuardian(2, false, 'mother'),
+  ]);
+  const [nextKey, setNextKey] = useState(3);
   const [error, setError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
 
@@ -212,44 +244,60 @@ export function AdmissionPage(): ReactNode {
       firstName: firstName.trim(),
       middleName: middleName.trim() || undefined,
       lastName: lastName.trim() || undefined,
-      dateOfBirth: dateOfBirth || undefined,
+      dateOfBirth,
+      gender: gender as AdmissionInput['gender'],
       admissionNumber: admissionNumber.trim() || undefined,
+      aadhaarLast4: aadhaarLast4.trim() || undefined,
+      previousClass: previousClass.trim() || undefined,
+      previousSchoolName: previousSchoolName.trim() || undefined,
+      homeAddress: homeAddress.trim(),
+      city: city.trim(),
+      state: state.trim(),
+      postalCode: postalCode.trim(),
+      emergencyContact: emergencyContact.trim(),
+      bloodGroup: bloodGroup || undefined,
+      medicalInformation: medicalInformation.trim() || undefined,
+      admissionDocuments,
       academicYearId,
       sectionId,
       startsOn,
-      guardians: guardians.map((guardian) => ({
+      guardians: guardians.filter((guardian) => guardian.firstName.trim()).map((guardian, index) => ({
         firstName: guardian.firstName.trim(),
         lastName: guardian.lastName.trim() || undefined,
+        occupation: guardian.occupation.trim() || undefined,
         email: guardian.email.trim() || undefined,
         phone: guardian.phone.trim() || undefined,
         relationshipType: guardian.relationshipType,
-        isPrimary: guardian.isPrimary,
+        isPrimary: index === 0 || guardian.isPrimary,
         portalAccessStatus: guardian.portalAccessStatus,
       })),
     });
   }
 
   return (
-    <form className="space-y-6" onSubmit={submit} noValidate>
+    <form className="grid items-start gap-4 lg:grid-cols-2" onSubmit={submit} noValidate>
+      <div className="lg:col-span-2">
       <PageHeader
         title="New admission"
-        description="Creates the student, an active enrollment and at least one guardian link in a single database transaction."
+        description="Capture the student, family, safety and document checklist once. The school and campus are attached automatically from your selected institution."
         actions={
-          <Link to="/students">
-            <Button variant="secondary" type="button">
-              Cancel
-            </Button>
-          </Link>
+          <>
+            {can('students.admission.create') && <LinkButton variant="secondary" href="/students?import=1">Import CSV / Excel</LinkButton>}
+            <Link to="/students">
+              <Button variant="secondary" type="button">Cancel</Button>
+            </Link>
+          </>
         }
       />
 
       <AdmissionPolicyGuidance />
+      </div>
       {error && <Alert tone="danger" title="Admission could not be saved">{error}</Alert>}
 
-      <Card>
+      <Card className="lg:col-span-2">
         <CardHeader
           title="Student details"
-          description="Only the first name is mandatory. The admission number is generated when left blank."
+          description="Required fields are marked *. The admission number is generated when left blank. Aadhaar is optional; enter only its last four digits."
         />
         <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="First name" htmlFor="first-name" required error={errors.firstName?.[0]}>
@@ -277,14 +325,24 @@ export function AdmissionPage(): ReactNode {
               autoComplete="off"
             />
           </Field>
-          <Field label="Date of birth" htmlFor="dob" error={errors.dateOfBirth?.[0]}>
+          <Field label="Date of birth" htmlFor="dob" required error={errors.dateOfBirth?.[0]}>
             <Input
               id="dob"
               type="date"
               max={todayIso(timeZone)}
               value={dateOfBirth}
               onChange={(event) => setDateOfBirth(event.target.value)}
+              required
             />
+          </Field>
+          <Field label="Gender" htmlFor="student-gender" required error={errors.gender?.[0]}>
+            <Select id="student-gender" value={gender} onChange={(event) => setGender(event.target.value)} required>
+              <option value="">Select</option>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+              <option value="other">Other</option>
+              <option value="not_disclosed">Prefer not to disclose</option>
+            </Select>
           </Field>
           <Field
             label="Admission number"
@@ -300,6 +358,53 @@ export function AdmissionPage(): ReactNode {
               autoComplete="off"
             />
           </Field>
+          <Field label="Aadhaar last four digits" htmlFor="aadhaar-last-four" hint="Optional. Never enter the full Aadhaar number." error={errors.aadhaarLast4?.[0]}>
+            <Input id="aadhaar-last-four" inputMode="numeric" maxLength={4} value={aadhaarLast4} onChange={(event) => setAadhaarLast4(event.target.value.replace(/\D/g, '').slice(0, 4))} />
+          </Field>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader title="Previous school" description="Complete for transfer or later-grade admissions; leave blank for a first school admission." />
+        <div className="grid gap-4 p-5 sm:grid-cols-2">
+          <Field label="Previous school name" htmlFor="previous-school">
+            <Input id="previous-school" value={previousSchoolName} onChange={(event) => setPreviousSchoolName(event.target.value)} />
+          </Field>
+          <Field label="Previous class" htmlFor="previous-class">
+            <Input id="previous-class" value={previousClass} onChange={(event) => setPreviousClass(event.target.value)} />
+          </Field>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader title="Address and safety" description="These shared details are needed for school communication and emergency follow-up." />
+        <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="Home address" htmlFor="home-address" required error={errors.homeAddress?.[0]}>
+            <Input id="home-address" value={homeAddress} onChange={(event) => setHomeAddress(event.target.value)} required />
+          </Field>
+          <Field label="City" htmlFor="home-city" required error={errors.city?.[0]}>
+            <Input id="home-city" value={city} onChange={(event) => setCity(event.target.value)} required />
+          </Field>
+          <Field label="State" htmlFor="home-state" required error={errors.state?.[0]}>
+            <Input id="home-state" value={state} onChange={(event) => setState(event.target.value)} required />
+          </Field>
+          <Field label="PIN code" htmlFor="home-pin" required error={errors.postalCode?.[0]}>
+            <Input id="home-pin" inputMode="numeric" maxLength={6} value={postalCode} onChange={(event) => setPostalCode(event.target.value.replace(/\D/g, '').slice(0, 6))} required />
+          </Field>
+          <Field label="Emergency contact number" htmlFor="emergency-contact" required error={errors.emergencyContact?.[0]} hint="May be the primary guardian number.">
+            <Input id="emergency-contact" type="tel" value={emergencyContact} onChange={(event) => setEmergencyContact(event.target.value)} required />
+          </Field>
+          <Field label="Blood group" htmlFor="student-blood-group" error={errors.bloodGroup?.[0]}>
+            <Select id="student-blood-group" value={bloodGroup} onChange={(event) => setBloodGroup(event.target.value)}>
+              <option value="">Not recorded</option>
+              {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((group) => <option key={group} value={group}>{group}</option>)}
+            </Select>
+          </Field>
+          <div className="sm:col-span-2 lg:col-span-3">
+            <Field label="Medical information or allergies" htmlFor="medical-information" hint="Optional. Record only information the school needs to keep the student safe.">
+              <textarea id="medical-information" className="field-input min-h-24" value={medicalInformation} onChange={(event) => setMedicalInformation(event.target.value)} maxLength={2000} />
+            </Field>
+          </div>
         </div>
       </Card>
 
@@ -367,10 +472,10 @@ export function AdmissionPage(): ReactNode {
         )}
       </Card>
 
-      <Card>
+      <Card className="lg:col-span-2">
         <CardHeader
-          title="Guardians"
-          description="At least one guardian is required. Exactly one can be the primary contact."
+          title="Parents and guardians"
+          description="Each parent or guardian you add needs a phone or email so records can be matched safely. Add the other parent if available; only one can be the primary contact."
           actions={
             guardians.length < 5 ? (
               <Button type="button" variant="secondary" size="sm" onClick={addGuardian}>
@@ -388,7 +493,7 @@ export function AdmissionPage(): ReactNode {
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-slate-900">
-                      Guardian {index + 1}
+                      {index === 0 ? 'Father / primary guardian' : index === 1 ? 'Mother / second guardian' : `Guardian ${index + 1}`}
                     </span>
                     {guardian.isPrimary && (
                       <span className="rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">
@@ -411,14 +516,14 @@ export function AdmissionPage(): ReactNode {
                   <Field
                     label="First name"
                     htmlFor={`guardian-${guardian.key}-first`}
-                    required
+                    required={index === 0}
                     error={currentErrors.firstName?.[0]}
                   >
                     <Input
                       id={`guardian-${guardian.key}-first`}
                       value={guardian.firstName}
                       onChange={(event) => updateGuardian(guardian.key, { firstName: event.target.value })}
-                      required
+                      required={index === 0}
                     />
                   </Field>
                   <Field
@@ -432,10 +537,13 @@ export function AdmissionPage(): ReactNode {
                       onChange={(event) => updateGuardian(guardian.key, { lastName: event.target.value })}
                     />
                   </Field>
+                  <Field label="Occupation" htmlFor={`guardian-${guardian.key}-occupation`}>
+                    <Input id={`guardian-${guardian.key}-occupation`} value={guardian.occupation} onChange={(event) => updateGuardian(guardian.key, { occupation: event.target.value })} />
+                  </Field>
                   <Field
                     label="Relationship"
                     htmlFor={`guardian-${guardian.key}-relationship`}
-                    required
+                    required={index === 0}
                     error={currentErrors.relationshipType?.[0]}
                   >
                     <Select
@@ -455,7 +563,7 @@ export function AdmissionPage(): ReactNode {
                   <Field
                     label="Email"
                     htmlFor={`guardian-${guardian.key}-email`}
-                    hint="Used to match an existing guardian record."
+                    hint="Enter an email or phone number; either one is required to match this guardian across records."
                     error={currentErrors.email?.[0]}
                   >
                     <Input
@@ -482,15 +590,9 @@ export function AdmissionPage(): ReactNode {
                     <Select
                       id={`guardian-${guardian.key}-portal`}
                       value={guardian.portalAccessStatus}
-                      onChange={(event) =>
-                        updateGuardian(guardian.key, { portalAccessStatus: event.target.value })
-                      }
+                      onChange={(event) => updateGuardian(guardian.key, { portalAccessStatus: event.target.value })}
                     >
-                      {GUARDIAN_PORTAL_STATUSES.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
+                      {GUARDIAN_PORTAL_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
                     </Select>
                   </Field>
                 </div>
@@ -510,7 +612,25 @@ export function AdmissionPage(): ReactNode {
         </div>
       </Card>
 
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <Card className="lg:col-span-2">
+        <CardHeader title="Admission documents" description="Choose a status for each document. Mark conditional documents as not_applicable when they are not needed for this admission." />
+        <div className="grid gap-4 p-5 sm:grid-cols-2">
+          {DOCUMENT_ITEMS.map((document) => (
+            <Field key={document.key} label={document.label} htmlFor={`document-${document.key}`}>
+              <Select
+                id={`document-${document.key}`}
+                value={admissionDocuments[document.key]}
+                onChange={(event) => setAdmissionDocuments((current) => ({ ...current, [document.key]: event.target.value as typeof current[typeof document.key] }))}
+              >
+                {DOCUMENT_STATUSES.map((status) => <option key={status} value={status}>{status.replaceAll('_', ' ')}</option>)}
+              </Select>
+            </Field>
+          ))}
+        </div>
+        <p className="px-5 pb-5 text-xs text-slate-500">This checklist tracks whether each item is pending, received or verified. It does not upload file attachments.</p>
+      </Card>
+
+      <div className="sticky bottom-0 z-20 -mx-2 flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white/95 px-3 py-3 shadow-[0_-6px_16px_rgba(15,23,42,0.08)] backdrop-blur lg:col-span-2">
         <Link to="/students">
           <Button variant="secondary" type="button">
             Cancel
@@ -519,7 +639,7 @@ export function AdmissionPage(): ReactNode {
         <Button
           type="submit"
           loading={mutation.isPending}
-          disabled={!sectionId || !academicYearId || guardians.some((guardian) => !guardian.firstName.trim())}
+          disabled={!sectionId || !academicYearId || !guardians[0]?.firstName.trim()}
         >
           Admit student
         </Button>

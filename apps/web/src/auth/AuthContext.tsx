@@ -113,6 +113,15 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
     [memberships, activeSchoolId],
   );
 
+  const selectActiveSchool = useCallback(
+    (schoolId: string) => {
+      if (!memberships.some((entry) => entry.schoolId === schoolId)) return;
+      if (schoolId !== activeSchoolId) queryClient.clear();
+      setActiveSchoolId(schoolId);
+    },
+    [activeSchoolId, memberships, queryClient],
+  );
+
   const permissionSet = useMemo(() => new Set(membership?.permissions ?? []), [membership]);
 
   const can = useCallback(
@@ -129,10 +138,10 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
       can,
       login,
       logout,
-      setActiveSchool: setActiveSchoolId,
+      setActiveSchool: selectActiveSchool,
       refresh,
     }),
-    [status, user, memberships, membership, can, login, logout, refresh],
+    [status, user, memberships, membership, can, login, logout, selectActiveSchool, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

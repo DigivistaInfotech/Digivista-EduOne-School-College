@@ -39,6 +39,7 @@ import { Dialog, ConfirmDialog } from '../components/Dialog';
 import { FeeExtrasPanel } from '../components/fees/FeeExtrasPanel';
 import { OfflineQueuePanel } from '../components/fees/OfflineQueuePanel';
 import { useToast } from '../components/ToastProvider';
+import { MasterImportActions } from '../components/MasterImportActions';
 import {
   Alert,
   Badge,
@@ -80,6 +81,7 @@ export function FeesPage(): ReactNode {
 
   const [yearId, setYearId] = useState('');
   const [tab, setTab] = useState<Tab>('charges');
+  const [recentPayment, setRecentPayment] = useState<PaymentRecord | null>(null);
   const [chargeStatus, setChargeStatus] = useState('');
   const [refundStatus, setRefundStatus] = useState('');
   const [dialog, setDialog] = useState<DialogState>(null);
@@ -378,6 +380,17 @@ export function FeesPage(): ReactNode {
       )}
 
       {tab === 'payments' && (
+        <div className="space-y-3">
+        {recentPayment && (
+          <Alert tone="success" title="Receipt recorded">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>{recentPayment.receiptNumber} is ready to view or print.</span>
+              <Button size="sm" onClick={() => window.open(paymentReceiptUrl(schoolId, recentPayment.id), '_blank', 'noopener')}>
+                Open receipt
+              </Button>
+            </div>
+          </Alert>
+        )}
         <Card>
           <CardHeader
             title="Receipts"
@@ -459,6 +472,7 @@ export function FeesPage(): ReactNode {
             </div>
           )}
         </Card>
+        </div>
       )}
 
       {tab === 'refunds' && (
@@ -561,10 +575,13 @@ export function FeesPage(): ReactNode {
               description="Categories that can be charged, such as tuition, transport or examination fees."
               actions={
                 canCharge ? (
-                  <Button size="sm" variant="secondary" onClick={() => setDialog({ kind: 'head' })}>
-                    <Icon name="plus" className="h-4 w-4" />
-                    New fee head
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    {can('imports.manage') && <MasterImportActions entityType="fee_heads" />}
+                    <Button size="sm" variant="secondary" onClick={() => setDialog({ kind: 'head' })}>
+                      <Icon name="plus" className="h-4 w-4" />
+                      New fee head
+                    </Button>
+                  </div>
                 ) : undefined
               }
             />
@@ -739,6 +756,8 @@ export function FeesPage(): ReactNode {
           onClose={() => setDialog(null)}
           onSaved={(payment) => {
             toast.notify('success', `Receipt ${payment.receiptNumber} recorded.`);
+            setRecentPayment(payment);
+            setTab('payments');
             setDialog(null);
             invalidate();
           }}

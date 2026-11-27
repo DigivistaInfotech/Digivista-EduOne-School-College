@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TimetableData } from "@erp/shared";
 import { useSchoolId } from "../auth/AuthContext";
@@ -14,20 +14,17 @@ interface Candidate {
 }
 export function SubstitutePlanner({
   data,
+  initialSlotId = "",
+  onCountChange,
 }: {
   data: TimetableData | undefined;
+  initialSlotId?: string;
+  onCountChange?: (count: number) => void;
 }) {
   const school = useSchoolId();
   const qc = useQueryClient();
-  const [date, setDate] = useState(() =>
-    new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Asia/Kolkata",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date()),
-  );
-  const [slot, setSlot] = useState("");
+  const [date, setDate] = useState(() => initialSlotId ? nextWeekdayDate(data?.slots.find((item) => item.id === initialSlotId)?.dayOfWeek ?? 1) : indiaToday());
+  const [slot, setSlot] = useState(initialSlotId);
   const [teacher, setTeacher] = useState("");
   const [reason, setReason] = useState("");
   const slots = (data?.slots ?? []).filter(
@@ -57,6 +54,7 @@ export function SubstitutePlanner({
       }>(`/api/schools/${school}/timetable/substitutions?date=${date}`),
     enabled: !!date,
   });
+  useEffect(() => onCountChange?.(assigned.data?.items.length ?? 0), [assigned.data?.items.length, onCountChange]);
   const save = useMutation({
     mutationFn: () =>
       api(`/api/schools/${school}/timetable/substitutions`, {
@@ -125,7 +123,7 @@ export function SubstitutePlanner({
           <p>No scheduled lessons for this section and date.</p>
         )}
         {candidates.isFetching && <p>Checking available teachers…</p>}
-      {candidates.data&&<p className="rounded-xl bg-slate-50 p-3 text-sm">Original teacher: <strong>{candidates.data.originalTeacherName}</strong> · {candidates.data.originalApprovedLeave?'Approved leave':candidates.data.originalAttendanceStatus??'Attendance not recorded — confirm absence / cover reason'}</p>}
+      {candidates.data&&<p className={`rounded-xl p-3 text-sm ${candidates.data.originalApprovedLeave || ["absent", "leave", "half_day"].includes(candidates.data.originalAttendanceStatus ?? "") ? "bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-700"}`}>{candidates.data.originalApprovedLeave || ["absent", "leave", "half_day"].includes(candidates.data.originalAttendanceStatus ?? "") ? "Cover needed · " : "Original teacher · "}<strong>{candidates.data.originalTeacherName}</strong> · {candidates.data.originalApprovedLeave?'Approved leave':candidates.data.originalAttendanceStatus??'Attendance not recorded — confirm absence / cover reason'}</p>}
         {candidates.data && (
           <>
             {!candidates.data.items.some((c) => c.eligible) && (
@@ -208,4 +206,16 @@ export function SubstitutePlanner({
       </div>
     </Card>
   );
+}
+
+function indiaToday(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+function nextWeekdayDate(dayOfWeek: number): string {
+  const [year, month, day] = indiaToday().split("-").map(Number);
+  const next = new Date(Date.UTC(year!, month! - 1, day!, 12));
+  const todayWeekday = next.getUTCDay() || 7;
+  next.setUTCDate(next.getUTCDate() + ((dayOfWeek - todayWeekday + 7) % 7));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
 }

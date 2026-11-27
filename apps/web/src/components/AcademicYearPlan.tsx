@@ -96,6 +96,9 @@ function YearEditor({ plan }: { plan: Plan }) {
     holidayOn: plan.year.startsOn,
     notes: "",
   });
+  const [holidayImportRows, setHolidayImportRows] = useState<Array<{ name: string; holidayOn: string; notes: string; row: number }>>([]);
+  const [holidayImportError, setHolidayImportError] = useState("");
+  const [holidayImportResult, setHolidayImportResult] = useState("");
   const refresh = () => {
     void qc.invalidateQueries({
       queryKey: ["academic-year-plan", school, plan.year.id],
@@ -155,6 +158,29 @@ function YearEditor({ plan }: { plan: Plan }) {
         notes: "",
       });
       refresh();
+    },
+  });
+  const holidayImport = useMutation({
+    mutationFn: async () => {
+      const errors: string[] = [];
+      let created = 0;
+      for (const row of holidayImportRows) {
+        try {
+          await api(`/api/schools/${school}/academic-years/${plan.year.id}/holidays`, {
+            method: "POST",
+            body: JSON.stringify({ name: row.name, holidayOn: row.holidayOn, notes: row.notes || undefined }),
+          });
+          created += 1;
+        } catch (error) {
+          errors.push(`Row ${row.row}: ${errorMessage(error)}`);
+        }
+      }
+      return { created, errors };
+    },
+    onSuccess: (result) => {
+      setHolidayImportResult(`Imported ${result.created} holiday(s).${result.errors.length ? ` ${result.errors.length} row(s) need correction: ${result.errors.join("; ")}` : ""}`);
+      if (result.created) refresh();
+      if (!result.errors.length) setHolidayImportRows([]);
     },
   });
   return (
@@ -311,6 +337,47 @@ function YearEditor({ plan }: { plan: Plan }) {
           holidays in this date range are included; they are managed from the
           central holiday settings.
         </p>
+        {editable && (
+          <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-medium">Import a school-approved holiday calendar</p>
+              <a className="text-sm font-semibold text-teal-700 underline" href="/api/import-templates/holiday-calendar-import.csv" download="holiday-calendar-import.csv">Download CSV template</a>
+            </div>
+            <Field label="Holiday CSV" htmlFor="holiday-calendar-csv" hint="Required headers: name, holiday_on (YYYY-MM-DD). Optional: notes. Dates must fall inside this academic year.">
+              <Input id="holiday-calendar-csv" type="file" accept=".csv,text/csv" onChange={async (event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                setHolidayImportError("");
+                setHolidayImportResult("");
+                try {
+                  const parsed = parseCalendarCsv(await file.text());
+                  const header = parsed[0]?.map((cell) => cell.trim().toLowerCase()) ?? [];
+                  const nameIndex = header.indexOf("name");
+                  const dateIndex = header.indexOf("holiday_on");
+                  const notesIndex = header.indexOf("notes");
+                  if (nameIndex < 0 || dateIndex < 0) throw new Error("CSV needs name and holiday_on columns.");
+                  const imported = parsed.slice(1).map((cells, index) => ({
+                    name: cells[nameIndex]?.trim() ?? "",
+                    holidayOn: cells[dateIndex]?.trim() ?? "",
+                    notes: notesIndex < 0 ? "" : cells[notesIndex]?.trim() ?? "",
+                    row: index + 2,
+                  })).filter((row) => row.name || row.holidayOn || row.notes);
+                  const invalid = imported.find((row) => !row.name || !isRealCalendarDate(row.holidayOn) || row.holidayOn < plan.year.startsOn || row.holidayOn > plan.year.endsOn);
+                  if (!imported.length) throw new Error("CSV contains no holiday rows.");
+                  if (invalid) throw new Error(`Row ${invalid.row} needs a name and a YYYY-MM-DD date inside ${plan.year.name}.`);
+                  if (imported.length > 500) throw new Error("Import at most 500 holiday rows at once.");
+                  setHolidayImportRows(imported);
+                } catch (error) {
+                  setHolidayImportRows([]);
+                  setHolidayImportError(error instanceof Error ? error.message : "Could not read the holiday CSV.");
+                }
+              }} />
+            </Field>
+            {holidayImportRows.length > 0 && <div className="flex items-center gap-3"><span className="text-sm">{holidayImportRows.length} holiday(s) ready to import.</span><Button type="button" disabled={holidayImport.isPending} onClick={() => holidayImport.mutate()}>Import holidays</Button></div>}
+            {holidayImportError && <p role="alert" className="text-sm text-rose-700">{holidayImportError}</p>}
+            {holidayImportResult && <p role="status" className="text-sm">{holidayImportResult}</p>}
+          </div>
+        )}
         {plan.holidays.length === 0 ? (
           <p className="text-sm text-slate-500">
             No holidays recorded in this year.
@@ -436,4 +503,34 @@ function YearEditor({ plan }: { plan: Plan }) {
       )}
     </div>
   );
+}
+
+function isRealCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function parseCalendarCsv(source: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  const csv = source.replace(/^\uFEFF/, "");
+  for (let index = 0; index < csv.length; index += 1) {
+    const character = csv[index]!;
+    if (quoted) {
+      if (character === '"' && csv[index + 1] === '"') { cell += '"'; index += 1; }
+      else if (character === '"') quoted = false;
+      else cell += character;
+    } else if (character === '"') {
+      if (cell) throw new Error("Invalid quote in CSV.");
+      quoted = true;
+    } else if (character === ",") { row.push(cell); cell = ""; }
+    else if (character === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+    else if (character !== "\r") cell += character;
+  }
+  if (quoted) throw new Error("CSV has an unclosed quoted value.");
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((values) => values.some((value) => value.trim()));
 }

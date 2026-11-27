@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { ImportRow, SavedReport } from '@erp/shared';
 import { useAuth, useSchoolId } from '../auth/AuthContext';
 import {
@@ -42,7 +43,21 @@ import {
 type Tab = 'saved' | 'imports';
 
 const REPORT_TYPES = ['students', 'attendance', 'fees'] as const;
-const ENTITY_TYPES = ['students', 'library_books', 'vendors'] as const;
+const ENTITY_TYPES = ['library_books', 'vendors', 'academic_years', 'classes', 'sections', 'subjects', 'subject_offerings', 'staff', 'rooms', 'timetable_periods', 'fee_heads', 'institution_masters'] as const;
+const IMPORT_TEMPLATES: Record<(typeof ENTITY_TYPES)[number], string> = {
+  library_books: '/api/import-templates/library-books-import.csv',
+  vendors: '/api/import-templates/vendors-import.csv',
+  academic_years: '/api/import-templates/academic-years-import.csv',
+  classes: '/api/import-templates/classes-import.csv',
+  sections: '/api/import-templates/sections-import.csv',
+  subjects: '/api/import-templates/subjects-import.csv',
+  subject_offerings: '/api/import-templates/subject-offerings-import.csv',
+  staff: '/api/import-templates/staff-import.csv',
+  rooms: '/api/import-templates/rooms-import.csv',
+  timetable_periods: '/api/import-templates/timetable-periods-import.csv',
+  fee_heads: '/api/import-templates/fee-heads-import.csv',
+  institution_masters: '/api/import-templates/institution-masters-import.csv',
+};
 const IMPORT_STATUSES = ['previewed', 'committed', 'cancelled'] as const;
 
 type SavedDialog =
@@ -52,6 +67,7 @@ type SavedDialog =
   | null;
 
 export function DataToolsPage(): ReactNode {
+  const [searchParams] = useSearchParams();
   const schoolId = useSchoolId();
   const { can } = useAuth();
   const toast = useToast();
@@ -60,10 +76,10 @@ export function DataToolsPage(): ReactNode {
   const canSaved = can('reports.saved.manage');
   const canImport = can('imports.manage');
 
-  const [tab, setTab] = useState<Tab>('saved');
+  const [tab, setTab] = useState<Tab>(() => searchParams.get('tab') === 'imports' ? 'imports' : 'saved');
   const [importStatus, setImportStatus] = useState('');
   const [importEntity, setImportEntity] = useState('');
-  const [dialog, setDialog] = useState<SavedDialog>(null);
+  const [dialog, setDialog] = useState<SavedDialog>(() => searchParams.get('tab') === 'imports' && canImport ? { kind: 'import' } : null);
   const [formError, setFormError] = useState('');
 
   const saved = useQuery({
@@ -623,8 +639,11 @@ function ImportDialog({
   onClose: () => void;
   onSave: (body: Parameters<typeof previewImport>[1]) => void;
 }): ReactNode {
-  const [entityType, setEntityType] = useState<(typeof ENTITY_TYPES)[number]>('students');
+  const [searchParams] = useSearchParams();
+  const initialEntity = ENTITY_TYPES.find((value) => value === searchParams.get('entityType')) ?? 'library_books';
+  const [entityType, setEntityType] = useState<(typeof ENTITY_TYPES)[number]>(initialEntity);
   const [csv, setCsv] = useState('');
+  const [fileError, setFileError] = useState('');
 
   return (
     <Dialog
@@ -652,7 +671,7 @@ function ImportDialog({
           onSave({ entityType, filename: `${entityType}-import.csv`, csv });
         }}
       >
-        {error && <Alert tone="danger">{error}</Alert>}
+        {(error || fileError) && <Alert tone="danger">{error || fileError}</Alert>}
         <Field label="Entity" htmlFor="import-entity" required>
           <Select
             id="import-entity"
@@ -661,18 +680,13 @@ function ImportDialog({
           >
             {ENTITY_TYPES.map((value) => (
               <option key={value} value={value}>
-                {value}
+                {value.replaceAll('_', ' ')}
               </option>
             ))}
           </Select>
         </Field>
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-          {entityType === 'students' && (
-            <p>
-              Required columns: <code>first_name</code>, <code>class_name</code>,{' '}
-              <code>section_name</code>. Students are enrolled into the active academic year.
-            </p>
-          )}
+          <p>Student admission imports are on the Students page so the complete admission form, guardian links, document checklist and enrollment validation are applied together.</p>
           {entityType === 'library_books' && (
             <p>
               Required column: <code>title</code>. Optional columns include author, isbn,
@@ -680,17 +694,31 @@ function ImportDialog({
             </p>
           )}
           {entityType === 'vendors' && <p>Required column: name.</p>}
+          {!['library_books', 'vendors'].includes(entityType) && <p>Use the downloaded sheet headers exactly. Reference columns use school-local codes. Example rows are marked sample_only=yes; replace or remove them before commit. Each row is validated before a transaction commits the batch.</p>}
         </div>
-        <Field label="CSV file" htmlFor="import-file" hint="The file is read locally and sent as text.">
+        <a
+          className="inline-flex text-sm font-semibold text-teal-700 underline"
+          href={IMPORT_TEMPLATES[entityType]}
+          download
+        >
+          Download {entityType.replaceAll('_', ' ')} CSV template
+        </a>
+        <Field label="CSV or Excel file" htmlFor="import-file" hint="The workbook is converted in your browser; no file is stored on the server.">
           <input
             id="import-file"
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="block w-full text-sm text-slate-600"
             onChange={async (event) => {
               const file = event.target.files?.[0];
               if (!file) return;
-              setCsv(await file.text());
+              setFileError('');
+              try {
+                setCsv(file.name.toLowerCase().endsWith('.xlsx') ? await readXlsxAsCsv(file) : await file.text());
+              } catch (error) {
+                setCsv('');
+                setFileError(error instanceof Error ? error.message : 'The selected file could not be read.');
+              }
             }}
           />
         </Field>
@@ -707,6 +735,58 @@ function ImportDialog({
       </form>
     </Dialog>
   );
+}
+
+async function readXlsxAsCsv(file: File): Promise<string> {
+  if (file.size > 5 * 1024 * 1024) throw new Error('Choose an Excel file smaller than 5 MiB.');
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
+  let end = -1;
+  for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 65_557); offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) { end = offset; break; }
+  }
+  if (end < 0) throw new Error('This is not a valid Excel workbook.');
+  const count = view.getUint16(end + 10, true);
+  let cursor = view.getUint32(end + 16, true);
+  const files = new Map<string, Uint8Array>();
+  const decoder = new TextDecoder();
+  for (let i = 0; i < count; i += 1) {
+    if (view.getUint32(cursor, true) !== 0x02014b50) throw new Error('Excel workbook directory is invalid.');
+    const method = view.getUint16(cursor + 10, true);
+    const size = view.getUint32(cursor + 20, true);
+    const nameLength = view.getUint16(cursor + 28, true);
+    const extraLength = view.getUint16(cursor + 30, true);
+    const commentLength = view.getUint16(cursor + 32, true);
+    const local = view.getUint32(cursor + 42, true);
+    const name = decoder.decode(bytes.subarray(cursor + 46, cursor + 46 + nameLength));
+    const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+    const compressed = bytes.subarray(start, start + size);
+    if (method === 0) files.set(name, compressed);
+    else if (method === 8) {
+      const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      files.set(name, new Uint8Array(await new Response(stream).arrayBuffer()));
+    } else throw new Error('This Excel workbook uses an unsupported compression method.');
+    cursor += 46 + nameLength + extraLength + commentLength;
+  }
+  const xml = (name: string) => {
+    const content = files.get(name);
+    if (!content) throw new Error(`Workbook is missing ${name}.`);
+    return new DOMParser().parseFromString(decoder.decode(content), 'application/xml');
+  };
+  const shared = files.has('xl/sharedStrings.xml') ? Array.from(xml('xl/sharedStrings.xml').getElementsByTagName('si'), (item) => Array.from(item.getElementsByTagName('t'), (text) => text.textContent ?? '').join('')) : [];
+  const rows: string[][] = [];
+  for (const rowElement of Array.from(xml('xl/worksheets/sheet1.xml').getElementsByTagName('row'))) {
+    const row: string[] = [];
+    for (const cell of Array.from(rowElement.getElementsByTagName('c'))) {
+      const letters = (cell.getAttribute('r') ?? '').replace(/[0-9]/g, '');
+      const column = [...letters].reduce((sum, char) => sum * 26 + char.charCodeAt(0) - 64, 0) - 1;
+      const value = cell.getElementsByTagName('v')[0]?.textContent ?? '';
+      row[column] = cell.getAttribute('t') === 's' ? shared[Number(value)] ?? '' : cell.getAttribute('t') === 'inlineStr' ? cell.getElementsByTagName('t')[0]?.textContent ?? '' : value;
+    }
+    rows.push(row.map((value) => value ?? ''));
+  }
+  return rows.map((row) => row.map((value) => `"${value.replaceAll('"', '""')}"`).join(',')).join('\n');
 }
 
 function BatchDialog({

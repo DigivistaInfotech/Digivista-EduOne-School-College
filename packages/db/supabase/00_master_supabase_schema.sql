@@ -1,11 +1,11 @@
 -- ============================================================================
--- ASTERLEAF SCHOOL ERP — MASTER SUPABASE CONSOLIDATED SCHEMA (0001 - 0044)
+-- ASTERLEAF SCHOOL ERP — MASTER SUPABASE CONSOLIDATED SCHEMA (0001 - 0045)
 -- ============================================================================
 -- Target Database: Brand-New Supabase PostgreSQL Database
 -- Modules Covered: Full 30-Module Directory (Nursery to Class XII)
 -- Includes:
 --   1. Extensions (pgcrypto, uuid-ossp)
---   2. Multi-tenant Schema Migrations (0001 to 0044)
+--   2. Multi-tenant Schema Migrations (0001 to 0045)
 --   3. Row-Level Security (RLS) & Tenant Isolation Policies
 --   4. Supabase Auth Interoperability (current_app_user_id, current_app_school_id)
 --   5. Pre-populated schema_migrations with exact SHA-256 checksums
@@ -4565,8 +4565,46 @@ DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='erp_app') THEN
  GRANT SELECT,INSERT,UPDATE,DELETE ON subject_class_offerings TO erp_app;
 END IF; END $$;
 
+
+-- ----------------------------------------------------------------------------
+-- Migration: 0045_admission_details.sql (SHA-256: 0fd6bc93ddafd9b36fc4e74726cb60e625d607fb9b65862b5811c851ae3a4a53)
+-- ----------------------------------------------------------------------------
+
+-- Expand student admission profiles while keeping school-specific records tenant scoped.
+ALTER TABLE students
+  ADD COLUMN gender VARCHAR(30),
+  ADD COLUMN aadhaar_last4 CHAR(4),
+  ADD COLUMN previous_class VARCHAR(80),
+  ADD COLUMN previous_school_name VARCHAR(160),
+  ADD COLUMN home_address TEXT,
+  ADD COLUMN city VARCHAR(100),
+  ADD COLUMN state VARCHAR(100),
+  ADD COLUMN postal_code VARCHAR(12),
+  ADD COLUMN medical_information TEXT,
+  ADD COLUMN admission_documents JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD CONSTRAINT chk_students_gender CHECK (gender IS NULL OR gender IN ('female', 'male', 'other', 'not_disclosed')),
+  ADD CONSTRAINT chk_students_aadhaar_last4 CHECK (aadhaar_last4 IS NULL OR aadhaar_last4 ~ '^[0-9]{4}$'),
+  ADD CONSTRAINT chk_students_postal_code CHECK (postal_code IS NULL OR postal_code ~ '^[1-9][0-9]{5}$');
+
+ALTER TABLE guardians
+  ADD COLUMN occupation VARCHAR(120);
+
+-- Migration: 0046_notice_metadata.sql
+ALTER TABLE notices
+  ADD COLUMN category VARCHAR(40) NOT NULL DEFAULT 'general',
+  ADD COLUMN priority VARCHAR(12) NOT NULL DEFAULT 'normal',
+  ADD CONSTRAINT chk_notices_category CHECK (category IN (
+    'general', 'academic', 'examination', 'holiday', 'fee', 'attendance',
+    'parent_meeting', 'school_event', 'competition', 'admission', 'transport',
+    'library', 'health_safety', 'achievement', 'staff', 'emergency'
+  )),
+  ADD CONSTRAINT chk_notices_priority CHECK (priority IN ('low', 'normal', 'high', 'urgent'));
+
+CREATE INDEX ix_notices_school_category_priority
+  ON notices (school_id, category, priority, created_at DESC);
+
 -- ============================================================================
--- RECORD ALL 34 MIGRATION CHECKSUMS IN schema_migrations
+-- RECORD ALL 35 MIGRATION CHECKSUMS IN schema_migrations
 -- ============================================================================
 INSERT INTO schema_migrations (version, checksum, applied_at)
 VALUES
@@ -4613,7 +4651,9 @@ VALUES
   ('0041_transport_audit_masters.sql', 'da82a5a7ff5e536982d3c718aa8adc82197ad9c72c53359e8a90916f8dcb9d2e', now()),
   ('0042_transport_tariffs_and_renewals.sql', 'ae2d92b96b3b9bb9abb9de95d2a1df5d27f8fee8dd2b6fd84324d5ff290e85a1', now()),
   ('0043_academic_supplemental_profiles.sql', '1350b30058b2ac0b0fab0d81f47f839ce76fa755f9a273328d04e91232573ca2', now()),
-  ('0044_subject_class_offerings.sql', '757ec7ba5311e07d74262cc6824c7dccd8d70c8f510d45e7d9633dbd634039f8', now())
+  ('0044_subject_class_offerings.sql', '757ec7ba5311e07d74262cc6824c7dccd8d70c8f510d45e7d9633dbd634039f8', now()),
+  ('0045_admission_details.sql', '0fd6bc93ddafd9b36fc4e74726cb60e625d607fb9b65862b5811c851ae3a4a53', now()),
+  ('0046_notice_metadata.sql', '4867537e68814ff489648c0dc665ab2eacd06cc55206b420f1e433b67c3c7088', now())
 ON CONFLICT (version) DO UPDATE SET checksum = EXCLUDED.checksum;
 
 -- Grant full schema privileges to Supabase authenticated and erp_app roles

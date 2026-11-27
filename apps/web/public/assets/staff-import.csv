@@ -1,0 +1,3 @@
+employee_number,first_name,last_name,email,phone,designation,department,joined_on,status,sample_only
+SAMPLE_DELETE_1,Example,Asha,asha@example.invalid,9000000001,Teacher,Academics,2026-04-01,active,yes
+SAMPLE_DELETE_2,Example,Ravi,ravi@example.invalid,9000000002,Accounts Assistant,Finance,2026-04-01,active,yes

@@ -249,13 +249,26 @@ export interface AdmissionInput {
   firstName: string;
   middleName?: string;
   lastName?: string;
-  dateOfBirth?: string;
+  dateOfBirth: string;
+  gender: 'female' | 'male' | 'other' | 'not_disclosed';
+  aadhaarLast4?: string;
+  previousClass?: string;
+  previousSchoolName?: string;
+  homeAddress: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  emergencyContact: string;
+  bloodGroup?: string;
+  medicalInformation?: string;
+  admissionDocuments: Record<string, 'not_provided' | 'received' | 'verified' | 'not_applicable'>;
   academicYearId: string;
   sectionId: string;
   startsOn: string;
   guardians: Array<{
     firstName: string;
     lastName?: string;
+    occupation?: string;
     email?: string;
     phone?: string;
     relationshipType: string;
@@ -278,6 +291,16 @@ export function updateStudent(
   input: {
     bloodGroup?: string | null;
     emergencyContact?: string | null;
+    gender?: 'female' | 'male' | 'other' | 'not_disclosed';
+    aadhaarLast4?: string | null;
+    previousClass?: string | null;
+    previousSchoolName?: string | null;
+    homeAddress?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postalCode?: string | null;
+    medicalInformation?: string | null;
+    admissionDocuments?: Record<string, 'not_provided' | 'received' | 'verified' | 'not_applicable'>;
     firstName?: string;
     middleName?: string | null;
     lastName?: string | null;
@@ -438,6 +461,7 @@ export interface TimetableSlotInput {
   subjectId: string;
   teacherUserId: string;
   roomId?: string | null;
+  notes?: string;
 }
 
 export function createTimetableSlot(
@@ -3052,7 +3076,7 @@ export function getImport(
 
 export function previewImport(
   schoolId: string,
-  input: { entityType: 'students' | 'library_books' | 'vendors'; filename: string; csv: string },
+  input: { entityType: ImportBatch['entityType']; filename: string; csv: string },
 ): Promise<{ id: string; totalRows: number; validRows: number; invalidRows: number }> {
   return api(`${school(schoolId)}/imports/preview`, {
     method: 'POST',

@@ -263,6 +263,72 @@ export async function registerAcademicRoutes(
     },
   );
 
+  app.post(
+    "/api/schools/:schoolId/academic-years/:id/copy-structure",
+    { preHandler: requirePermission("academic.year.manage") },
+    async (request) => {
+      const { schoolId, id: targetYearId } = parseInput(idParams, request.params);
+      const actor = getActor(request);
+      const { sourceYearId } = parseInput(z.object({ sourceYearId: uuid }), request.body);
+      if (sourceYearId === targetYearId) throw badRequest("Choose a different previous academic year");
+
+      return withTransaction(async (client) => {
+        const years = await client.query<{ id: string; name: string; status: string }>(
+          `SELECT id,name,status FROM academic_years WHERE school_id=$1 AND id=ANY($2::uuid[]) FOR UPDATE`,
+          [schoolId, [targetYearId, sourceYearId]],
+        );
+        const target = years.rows.find((year) => year.id === targetYearId);
+        const source = years.rows.find((year) => year.id === sourceYearId);
+        if (!target || !source) throw notFound("Academic year not found in this school");
+        if (target.status === "archived") throw badRequest("Archived academic years are read-only");
+
+        // Classes and subjects are school-wide master records; reuse their stable IDs.
+        // Only copy year-specific sections and class-subject offering rows.
+        const sections = await client.query(
+          `INSERT INTO sections(school_id,academic_year_id,class_id,code,name,capacity,status)
+           SELECT school_id,$3,class_id,code,name,capacity,status FROM sections
+           WHERE school_id=$1 AND academic_year_id=$2
+           ON CONFLICT (academic_year_id,class_id,code) DO NOTHING`,
+          [schoolId, sourceYearId, targetYearId],
+        );
+        const offerings = await client.query(
+          `INSERT INTO subject_class_offerings(school_id,academic_year_id,subject_id,class_id,updated_by)
+           SELECT school_id,$3,subject_id,class_id,$4 FROM subject_class_offerings
+           WHERE school_id=$1 AND academic_year_id=$2
+           ON CONFLICT (school_id,academic_year_id,subject_id,class_id) DO NOTHING`,
+          [schoolId, sourceYearId, targetYearId, actor.userId],
+        );
+        const summary = {
+          sourceYearId,
+          sourceYearName: source.name,
+          targetYearId,
+          targetYearName: target.name,
+          sectionsCreated: sections.rowCount ?? 0,
+          subjectMappingsCreated: offerings.rowCount ?? 0,
+        };
+        await recordAudit(client, {
+          schoolId,
+          actorUserId: actor.userId,
+          action: "academic_year.structure_copied",
+          entityType: "academic_year",
+          entityId: targetYearId,
+          outcome: "success",
+          after: summary,
+          ...requestMeta(request),
+        });
+        await recordActivity(client, {
+          schoolId,
+          entityType: "academic_year",
+          entityId: targetYearId,
+          eventType: "academic_year.structure_copied",
+          actorUserId: actor.userId,
+          summary: `Academic structure copied from ${source.name} to ${target.name}`,
+        });
+        return summary;
+      });
+    },
+  );
+
   /* --------------------------------- classes ------------------------------- */
 
   app.get(

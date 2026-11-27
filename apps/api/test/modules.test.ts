@@ -1789,7 +1789,7 @@ describe('saved reports and CSV imports', () => {
     expect(again.status).toBe(409);
   });
 
-  it('commits a student row against the active year and cancels a library preview', async () => {
+  it('routes student import through the complete admission workflow and cancels a library preview', async () => {
     const students = [
       'first_name,last_name,class_name,section_name',
       'Import,Student,Grade 1,Section A',
@@ -1798,23 +1798,8 @@ describe('saved reports and CSV imports', () => {
       cookie: coordinator,
       payload: { entityType: 'students', filename: 'students.csv', csv: students },
     });
-    expect(preview.status).toBe(201);
-    expect(preview.body.validRows).toBe(1);
-    expect(preview.body.invalidRows).toBe(0);
-
-    const commit = await call(
-      'POST',
-      `/api/schools/${schoolId}/imports/${preview.body.id}/commit`,
-      { cookie: coordinator, payload: {} },
-    );
-    expect(commit.status).toBe(200);
-    expect(commit.body.created).toBe(1);
-
-    const imported = await q<{ id: string }>(
-      `SELECT id FROM students WHERE school_id = $1 AND first_name = 'Import'`,
-      [schoolId],
-    );
-    expect(imported).toHaveLength(1);
+    expect(preview.status).toBe(400);
+    expect(preview.body.error.message).toContain('Students → Import students');
 
     const books = ['title,author', 'Module Imported Book,Author One'].join('\n');
     const libraryPreview = await call('POST', `/api/schools/${schoolId}/imports/preview`, {

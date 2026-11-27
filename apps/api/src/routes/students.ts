@@ -145,8 +145,11 @@ export async function registerStudentRoutes(
 
         const studentResult = await client.query<{ id: string }>(
           `INSERT INTO students
-             (school_id, admission_number, first_name, middle_name, last_name, date_of_birth, status)
-           VALUES ($1, $2, $3, $4, $5, $6, 'active')
+             (school_id, admission_number, first_name, middle_name, last_name, date_of_birth,
+              gender, aadhaar_last4, previous_class, previous_school_name, home_address, city,
+              state, postal_code, emergency_contact, blood_group, medical_information,
+              admission_documents, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, 'active')
            RETURNING id`,
           [
             schoolId,
@@ -154,7 +157,19 @@ export async function registerStudentRoutes(
             input.firstName,
             input.middleName ?? null,
             input.lastName ?? null,
-            input.dateOfBirth ?? null,
+            input.dateOfBirth,
+            input.gender,
+            input.aadhaarLast4 ?? null,
+            input.previousClass ?? null,
+            input.previousSchoolName ?? null,
+            input.homeAddress,
+            input.city,
+            input.state,
+            input.postalCode,
+            input.emergencyContact,
+            input.bloodGroup ?? null,
+            input.medicalInformation ?? null,
+            JSON.stringify(input.admissionDocuments),
           ],
         );
         const studentId = studentResult.rows[0]!.id;
@@ -252,8 +267,24 @@ export async function registerStudentRoutes(
           "The CSV needs a header row and at least one student row",
         );
       }
-      const header = rows[0]!.map((cell) => cell.trim().toLowerCase());
-      const required = ["first_name", "class_name", "section_name"];
+      const legacyColumns: Record<string, string> = {
+        guardian_first_name: 'guardian_1_first_name',
+        guardian_last_name: 'guardian_1_last_name',
+        guardian_email: 'guardian_1_email',
+        guardian_phone: 'guardian_1_phone',
+        guardian_relationship: 'guardian_1_relationship',
+        guardian_is_primary: 'guardian_1_is_primary',
+      };
+      const allowedRelationships = new Set(['father', 'mother', 'parent', 'guardian', 'grandparent', 'sibling', 'other']);
+      const header = rows[0]!.map((cell) => {
+        const name = cell.trim().toLowerCase().replace(/\s*\([^)]*\)\s*$/, '').replace(/\s*\*+\s*$/, '').replace(/[\s-]+/g, '_');
+        return legacyColumns[name] ?? name;
+      });
+      const required = [
+        'first_name', 'date_of_birth', 'gender', 'home_address', 'city', 'state',
+        'postal_code', 'emergency_contact', 'class_name', 'section_name',
+        'enrollment_start_date', 'guardian_1_first_name', 'guardian_1_relationship',
+      ];
       const missing = required.filter((column) => !header.includes(column));
       if (missing.length > 0) {
         throw badRequest(
@@ -283,20 +314,100 @@ export async function registerStudentRoutes(
         const lastName = value("last_name");
         const admissionNumber = value("admission_number");
         const dateOfBirth = value("date_of_birth");
+        const enrollmentStartDate = value('enrollment_start_date');
+        const gender = value('gender').toLowerCase();
+        const aadhaarLast4 = value('aadhaar_last4');
+        const previousClass = value('previous_class');
+        const previousSchoolName = value('previous_school_name');
+        const homeAddress = value('home_address');
+        const city = value('city');
+        const state = value('state');
+        const postalCode = value('postal_code');
+        const emergencyContact = value('emergency_contact');
+        const bloodGroup = value('blood_group').toUpperCase();
+        const medicalInformation = value('medical_information');
         const className = value("class_name");
         const sectionName = value("section_name");
+        const guardians = [1, 2].map((number) => ({
+          firstName: value(`guardian_${number}_first_name`),
+          lastName: value(`guardian_${number}_last_name`),
+          occupation: value(`guardian_${number}_occupation`),
+          email: value(`guardian_${number}_email`),
+          phone: value(`guardian_${number}_phone`),
+          relationshipType: value(`guardian_${number}_relationship`) || (number === 2 ? 'mother' : ''),
+        }));
+        const filledGuardians = guardians.filter((guardian) => guardian.firstName);
+        const allowedDocumentStatuses = new Set(['not_provided', 'received', 'verified', 'not_applicable']);
+        const documentColumns = {
+          studentPhoto: 'student_photo_status',
+          birthCertificate: 'birth_certificate_status',
+          aadhaarCard: 'aadhaar_card_status',
+          previousReportCard: 'previous_report_card_status',
+          transferCertificate: 'transfer_certificate_status',
+          migrationCertificate: 'migration_certificate_status',
+          addressProof: 'address_proof_status',
+        } as const;
+        const admissionDocuments = Object.fromEntries(
+          Object.entries(documentColumns).map(([key, columnName]) => [key, value(columnName) || 'not_provided']),
+        );
 
         if (!firstName) {
           result.failed += 1;
           result.errors.push({ row: line, message: "first_name is required" });
           continue;
         }
-        if (dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
           result.failed += 1;
           result.errors.push({
             row: line,
             message: "date_of_birth must be YYYY-MM-DD",
           });
+          continue;
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(enrollmentStartDate)) {
+          result.failed += 1;
+          result.errors.push({ row: line, message: 'enrollment_start_date must be YYYY-MM-DD' });
+          continue;
+        }
+        if (!['female', 'male', 'other', 'not_disclosed'].includes(gender)) {
+          result.failed += 1;
+          result.errors.push({ row: line, message: 'gender must be female, male, other, or not_disclosed' });
+          continue;
+        }
+        if (!homeAddress || !city || !state || !/^[1-9]\d{5}$/.test(postalCode) || !/^[0-9+()\-\s]{6,40}$/.test(emergencyContact)) {
+          result.failed += 1;
+          result.errors.push({ row: line, message: 'home_address, city, state, a valid six-digit postal_code, and emergency_contact are required' });
+          continue;
+        }
+        if (aadhaarLast4 && !/^\d{4}$/.test(aadhaarLast4)) {
+          result.failed += 1;
+          result.errors.push({ row: line, message: 'aadhaar_last4 must contain four digits only' });
+          continue;
+        }
+        if (bloodGroup && !['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].includes(bloodGroup)) {
+          result.failed += 1;
+          result.errors.push({ row: line, message: 'blood_group must be a standard A/B/AB/O positive or negative value' });
+          continue;
+        }
+        if (filledGuardians.length === 0 || filledGuardians.some((guardian) => !guardian.email && !guardian.phone)) {
+          result.failed += 1;
+          result.errors.push({ row: line, message: 'Enter at least one guardian, and provide an email or phone for each guardian entered' });
+          continue;
+        }
+        if (filledGuardians.some((guardian) => !allowedRelationships.has(guardian.relationshipType.toLowerCase()))) {
+          result.failed += 1;
+          result.errors.push({ row: line, message: 'Guardian relationship must be father, mother, guardian, parent, grandparent, sibling, or other' });
+          continue;
+        }
+        if (filledGuardians.some((guardian) => guardian.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guardian.email))) {
+          result.failed += 1;
+          result.errors.push({ row: line, message: 'A guardian email address is not valid' });
+          continue;
+        }
+        const invalidDocumentStatus = Object.values(admissionDocuments).some((status) => !allowedDocumentStatuses.has(status));
+        if (invalidDocumentStatus) {
+          result.failed += 1;
+          result.errors.push({ row: line, message: 'Document statuses must be not_provided, received, verified, or not_applicable' });
           continue;
         }
 
@@ -332,8 +443,11 @@ export async function registerStudentRoutes(
 
             const student = await client.query<{ id: string }>(
               `INSERT INTO students
-                 (school_id, admission_number, first_name, middle_name, last_name, date_of_birth, status)
-               VALUES ($1, $2, $3, $4, $5, $6, 'active')
+                 (school_id, admission_number, first_name, middle_name, last_name, date_of_birth,
+                  gender, aadhaar_last4, previous_class, previous_school_name, home_address, city,
+                  state, postal_code, emergency_contact, blood_group, medical_information,
+                  admission_documents, status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, 'active')
                RETURNING id`,
               [
                 schoolId,
@@ -341,7 +455,19 @@ export async function registerStudentRoutes(
                 firstName,
                 middleName || null,
                 lastName || null,
-                dateOfBirth || null,
+                dateOfBirth,
+                gender,
+                aadhaarLast4 || null,
+                previousClass || null,
+                previousSchoolName || null,
+                homeAddress,
+                city,
+                state,
+                postalCode,
+                emergencyContact,
+                bloodGroup || null,
+                medicalInformation || null,
+                JSON.stringify(admissionDocuments),
               ],
             );
             const studentId = student.rows[0]!.id;
@@ -355,10 +481,18 @@ export async function registerStudentRoutes(
                 input.academicYearId,
                 sectionRow.class_id,
                 sectionRow.id,
-                toIsoDate(year.rows[0]!.starts_on) ??
-                  new Date().toISOString().slice(0, 10),
+                enrollmentStartDate,
               ],
             );
+            for (const [guardianIndex, guardian] of filledGuardians.entries()) {
+              const guardianId = await upsertGuardian(client, schoolId, guardian);
+              await client.query(
+                `INSERT INTO student_guardians
+                   (school_id,student_id,guardian_id,relationship_type,is_primary,portal_access_status)
+                 VALUES ($1,$2,$3,$4,$5,'pending') ON CONFLICT (student_id,guardian_id) DO NOTHING`,
+                [schoolId, studentId, guardianId, guardian.relationshipType, guardianIndex === 0],
+              );
+            }
             await recordAudit(client, {
               schoolId,
               actorUserId: actor.userId,
@@ -483,14 +617,34 @@ export async function registerStudentRoutes(
         );
 
         await client.query(
-          `UPDATE students SET blood_group=CASE WHEN $3 THEN $4 ELSE blood_group END, emergency_contact=CASE WHEN $5 THEN $6 ELSE emergency_contact END WHERE school_id=$1 AND id=$2`,
+          `UPDATE students SET
+             blood_group=CASE WHEN $3 THEN $4 ELSE blood_group END,
+             emergency_contact=CASE WHEN $5 THEN $6 ELSE emergency_contact END,
+             gender=CASE WHEN $7 THEN $8 ELSE gender END,
+             aadhaar_last4=CASE WHEN $9 THEN $10 ELSE aadhaar_last4 END,
+             previous_class=CASE WHEN $11 THEN $12 ELSE previous_class END,
+             previous_school_name=CASE WHEN $13 THEN $14 ELSE previous_school_name END,
+             home_address=CASE WHEN $15 THEN $16 ELSE home_address END,
+             city=CASE WHEN $17 THEN $18 ELSE city END,
+             state=CASE WHEN $19 THEN $20 ELSE state END,
+             postal_code=CASE WHEN $21 THEN $22 ELSE postal_code END,
+             medical_information=CASE WHEN $23 THEN $24 ELSE medical_information END,
+             admission_documents=CASE WHEN $25 THEN $26::jsonb ELSE admission_documents END
+           WHERE school_id=$1 AND id=$2`,
           [
-            schoolId,
-            id,
-            input.bloodGroup !== undefined,
-            input.bloodGroup ?? null,
-            input.emergencyContact !== undefined,
-            input.emergencyContact ?? null,
+            schoolId, id,
+            input.bloodGroup !== undefined, input.bloodGroup ?? null,
+            input.emergencyContact !== undefined, input.emergencyContact ?? null,
+            input.gender !== undefined, input.gender ?? null,
+            input.aadhaarLast4 !== undefined, input.aadhaarLast4 ?? null,
+            input.previousClass !== undefined, input.previousClass ?? null,
+            input.previousSchoolName !== undefined, input.previousSchoolName ?? null,
+            input.homeAddress !== undefined, input.homeAddress ?? null,
+            input.city !== undefined, input.city ?? null,
+            input.state !== undefined, input.state ?? null,
+            input.postalCode !== undefined, input.postalCode ?? null,
+            input.medicalInformation !== undefined, input.medicalInformation ?? null,
+            input.admissionDocuments !== undefined, JSON.stringify(input.admissionDocuments ?? {}),
           ],
         );
         await recordAudit(client, {
@@ -769,35 +923,62 @@ async function upsertGuardian(
   guardian: {
     firstName: string;
     lastName?: string;
+    occupation?: string;
     email?: string;
     phone?: string;
   },
 ): Promise<string> {
-  if (guardian.email) {
-    const existing = await client.query<{ id: string }>(
-      `SELECT id FROM guardians
-       WHERE school_id = $1 AND lower(email) = lower($2) LIMIT 1`,
-      [schoolId, guardian.email],
+  const identityKeys = [
+    guardian.email ? `email:${guardian.email.trim().toLocaleLowerCase()}` : null,
+    guardian.phone ? `phone:${guardian.phone.trim()}` : null,
+  ].filter((key): key is string => key !== null).sort();
+  for (const key of identityKeys) {
+    await client.query(
+      'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+      [`guardian:${schoolId}:${key}`],
     );
-    if (existing.rows[0]) return existing.rows[0].id;
-  } else if (guardian.phone) {
-    const existing = await client.query<{ id: string }>(
-      `SELECT id FROM guardians
-       WHERE school_id = $1 AND phone = $2 LIMIT 1`,
-      [schoolId, guardian.phone],
+  }
+  const matches = await client.query<{
+    id: string; first_name: string; last_name: string | null; email: string | null; phone: string | null;
+  }>(
+    `SELECT id, first_name, last_name, email, phone
+     FROM guardians
+     WHERE school_id = $1
+       AND (($2::text IS NOT NULL AND lower(email) = lower($2)) OR ($3::text IS NOT NULL AND phone = $3))
+     FOR UPDATE`,
+    [schoolId, guardian.email ?? null, guardian.phone ?? null],
+  );
+  if (matches.rows.length > 1) {
+    throw conflict('Guardian email and phone point to different existing records. Review the guardian master before linking.', 'guardian_identity_conflict');
+  }
+  const existing = matches.rows[0];
+  if (existing) {
+    const same = (left: string | null | undefined, right: string | null | undefined) =>
+      !left || !right || left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
+    if (!same(existing.first_name, guardian.firstName) || !same(existing.last_name, guardian.lastName) ||
+        !same(existing.email, guardian.email) || !same(existing.phone, guardian.phone)) {
+      throw conflict('Guardian contact matched an existing record but the names or contact details differ. Review and correct the guardian master before linking.', 'guardian_identity_conflict');
+    }
+    await client.query(
+      `UPDATE guardians SET
+         first_name = COALESCE(first_name, $1), last_name = COALESCE(last_name, $2),
+         email = COALESCE(email, $3), phone = COALESCE(phone, $4), occupation = COALESCE(occupation, $5)
+       WHERE school_id = $6 AND id = $7`,
+      [guardian.firstName, guardian.lastName ?? null, guardian.email ?? null, guardian.phone ?? null, guardian.occupation ?? null, schoolId, existing.id],
     );
-    if (existing.rows[0]) return existing.rows[0].id;
+    return existing.id;
   }
 
   const { rows } = await client.query<{ id: string }>(
-    `INSERT INTO guardians (school_id, first_name, last_name, email, phone)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    `INSERT INTO guardians (school_id, first_name, last_name, email, phone, occupation)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
     [
       schoolId,
       guardian.firstName,
       guardian.lastName ?? null,
       guardian.email ?? null,
       guardian.phone ?? null,
+      guardian.occupation ?? null,
     ],
   );
   return rows[0]!.id;
@@ -850,7 +1031,10 @@ async function loadStudentDetail(
 ): Promise<StudentDetail> {
   const { rows } = await client.query<StudentDetailRow>(
     `SELECT st.id, st.admission_number, st.first_name, st.middle_name, st.last_name,
-            st.date_of_birth, st.blood_group, st.emergency_contact, st.status, st.created_at,
+            st.date_of_birth, st.blood_group, st.emergency_contact, st.gender,
+            st.aadhaar_last4, st.previous_class, st.previous_school_name, st.home_address,
+            st.city, st.state, st.postal_code, st.medical_information, st.admission_documents,
+            st.status, st.created_at,
             c.name AS class_name, sec.name AS section_name, ay.name AS academic_year_name,
             (SELECT count(*) FROM student_guardians sg
               WHERE sg.student_id = st.id AND sg.valid_to IS NULL) AS guardian_count
@@ -871,7 +1055,7 @@ async function loadStudentDetail(
   if (!student) throw notFound("Student not found");
 
   const guardians = await client.query<GuardianRow>(
-    `SELECT g.id, g.first_name, g.last_name, g.email, g.phone,
+    `SELECT g.id, g.first_name, g.last_name, g.occupation, g.email, g.phone,
             sg.relationship_type, sg.is_primary, sg.portal_access_status
      FROM student_guardians sg
      JOIN guardians g ON g.id = sg.guardian_id AND g.school_id = sg.school_id
@@ -896,6 +1080,16 @@ async function loadStudentDetail(
   return {
     bloodGroup: student.blood_group,
     emergencyContact: student.emergency_contact,
+    gender: student.gender,
+    aadhaarLast4: student.aadhaar_last4,
+    previousClass: student.previous_class,
+    previousSchoolName: student.previous_school_name,
+    homeAddress: student.home_address,
+    city: student.city,
+    state: student.state,
+    postalCode: student.postal_code,
+    medicalInformation: student.medical_information,
+    admissionDocuments: student.admission_documents,
     ...mapStudentSummary(student),
     middleName: student.middle_name,
     dateOfBirth: student.date_of_birth
@@ -924,6 +1118,16 @@ interface StudentSummaryRow {
 interface StudentDetailRow extends StudentSummaryRow {
   blood_group: string | null;
   emergency_contact: string | null;
+  gender: 'female' | 'male' | 'other' | 'not_disclosed' | null;
+  aadhaar_last4: string | null;
+  previous_class: string | null;
+  previous_school_name: string | null;
+  home_address: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  medical_information: string | null;
+  admission_documents: StudentDetail['admissionDocuments'];
   middle_name: string | null;
   date_of_birth: string | null;
   created_at: Date;
@@ -933,6 +1137,7 @@ interface GuardianRow {
   id: string;
   first_name: string;
   last_name: string | null;
+  occupation: string | null;
   email: string | null;
   phone: string | null;
   relationship_type: string;
@@ -986,6 +1191,7 @@ function mapGuardian(row: GuardianRow): GuardianRecord {
     id: row.id,
     firstName: row.first_name,
     lastName: row.last_name,
+    occupation: row.occupation,
     email: row.email,
     phone: row.phone,
     relationshipType: row.relationship_type,

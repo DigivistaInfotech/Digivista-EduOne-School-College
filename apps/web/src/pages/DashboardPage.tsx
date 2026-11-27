@@ -1549,6 +1549,13 @@ export function DashboardPage(): ReactNode {
         {/* 4 Stat Cards Row */}
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {currentRole.stats.map((stat, idx) => {
+            const statTarget = stat.label.includes("Budget") && can("procurement.view")
+              ? "/budget-report"
+              : stat.label === "Enrolment" && can("students.profile.view")
+                ? "/students"
+                : (stat.label === "Collection" || stat.label === "Verified") && can("fees.view")
+                  ? "/fees"
+                  : null;
             const card = (
               <StatCard
                 label={stat.label}
@@ -1558,8 +1565,8 @@ export function DashboardPage(): ReactNode {
                 color={idx}
               />
             );
-            return stat.label.includes("Budget") && can("procurement.view") ? (
-              <Link key={idx} to="/budget-report">
+            return statTarget ? (
+              <Link key={idx} to={statTarget} aria-label={`Open ${stat.label.toLowerCase()} details`}>
                 {card}
               </Link>
             ) : (

@@ -27,6 +27,7 @@ import { ConfirmDialog, Dialog } from "../components/Dialog";
 import { LeaveConfigPanel } from "../components/hr/LeaveConfigPanel";
 import { PayrollPanel } from "../components/hr/PayrollPanel";
 import { useToast } from "../components/ToastProvider";
+import { MasterImportActions } from "../components/MasterImportActions";
 import {
   Alert,
   Badge,
@@ -189,10 +190,13 @@ export function StaffPage(): ReactNode {
               </Button>
             )}
             {canManage && (
-              <Button onClick={() => setDialog({ kind: "staff" })}>
-                <Icon name="plus" className="h-4 w-4" />
-                New staff member
-              </Button>
+              <>
+                {can("imports.manage") && <MasterImportActions entityType="staff" />}
+                <Button onClick={() => setDialog({ kind: "staff" })}>
+                  <Icon name="plus" className="h-4 w-4" />
+                  New staff member
+                </Button>
+              </>
             )}
           </div>
         }

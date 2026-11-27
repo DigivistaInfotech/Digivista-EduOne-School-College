@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { libraryMemberCode } from "@erp/shared/library-identity";
 import type {
   LibraryBook,
@@ -376,6 +377,11 @@ export function LibraryPage(): ReactNode {
           <div className="flex flex-wrap gap-2">
             {canManage && (
               <>
+                {can("imports.manage") && (
+                  <Link to="/data-tools?tab=imports&entityType=library_books">
+                    <Button variant="secondary">Import books</Button>
+                  </Link>
+                )}
                 <Button
                   variant="secondary"
                   onClick={() => setDialog({ kind: "book" })}

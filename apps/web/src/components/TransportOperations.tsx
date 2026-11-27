@@ -280,6 +280,13 @@ export function TransportBulkImport() {
           imported; optional payment_reference is checked against recorded
           transport payments.
         </p>
+        <a
+          className="inline-flex text-sm font-semibold text-teal-700 underline"
+          href="/api/import-templates/transport-allocations-import.csv"
+          download="transport-allocations-import.csv"
+        >
+          Download transport allocation CSV template
+        </a>
         <Field label="Upload allocation CSV" htmlFor="transport-csv-file">
           <Input
             id="transport-csv-file"

@@ -23,7 +23,7 @@ const listQuery = z.object({
   reportType: z.enum(['students', 'attendance', 'fees']).optional(),
 });
 const importQuery = z.object({
-  entityType: z.enum(['students', 'library_books', 'vendors']).optional(),
+  entityType: z.enum(['students', 'library_books', 'vendors', 'academic_years', 'classes', 'sections', 'subjects', 'subject_offerings', 'staff', 'rooms', 'timetable_periods', 'fee_heads', 'institution_masters']).optional(),
   status: z.enum(['previewed', 'committed', 'cancelled']).optional(),
 });
 
@@ -331,6 +331,9 @@ export async function registerSavedReportRoutes(app: FastifyInstance): Promise<v
         );
         const batch = found.rows[0];
         if (!batch) throw notFound('Import batch not found');
+        if (batch.entity_type === 'students') {
+          throw conflict('This student batch uses the older incomplete format. Start a new import from Students → Import students.', 'student_import_requires_admission');
+        }
         if (batch.status === 'committed') throw conflict('This import was already committed');
         if (batch.status === 'cancelled') throw conflict('This import was cancelled');
 
@@ -360,6 +363,16 @@ export async function registerSavedReportRoutes(app: FastifyInstance): Promise<v
              WHERE school_id = $1 AND batch_id = $2 AND id = $3`,
             [schoolId, id, row.id, entityId],
           );
+          await recordAudit(client, {
+            schoolId,
+            actorUserId: actor.userId,
+            action: 'imports.row_created',
+            entityType: batch.entity_type,
+            entityId,
+            outcome: 'success',
+            after: { batchId: id, rowNumber: row.row_number },
+            ...requestMeta(request),
+          });
           created += 1;
         }
 
@@ -496,23 +509,31 @@ async function prepareImport(
   };
 
   if (entityType === 'students') {
-    requireColumn('first_name');
-    requireColumn('class_name');
-    requireColumn('section_name');
-    const year = await getPool().query<{ id: string }>(
-      `SELECT id FROM academic_years WHERE school_id = $1 AND status = 'active'`,
-      [schoolId],
-    );
-    if (!year.rows[0]) {
-      throw badRequest('Set an active academic year before importing students');
-    }
+    throw badRequest('Use Students → Import students for admissions. It validates the complete student and guardian record and links the enrollment.');
   } else if (entityType === 'library_books') {
     requireColumn('title');
-  } else {
+  } else if (entityType === 'vendors') {
     requireColumn('name');
+  } else {
+    const required: Record<string, string[]> = {
+      academic_years: ['code', 'name', 'starts_on', 'ends_on', 'status'],
+      classes: ['code', 'name', 'grade_order', 'status'],
+      sections: ['academic_year_code', 'class_code', 'code', 'name', 'capacity', 'status'],
+      subjects: ['code', 'name', 'subject_type', 'status'],
+      subject_offerings: ['academic_year_code', 'subject_code', 'class_code'],
+      staff: ['employee_number', 'first_name', 'last_name', 'email', 'phone', 'designation', 'department', 'joined_on', 'status'],
+      rooms: ['code', 'name', 'capacity', 'status'],
+      timetable_periods: ['academic_year_code', 'name', 'sequence_no', 'starts_at', 'ends_at', 'is_break'],
+      fee_heads: ['code', 'name', 'description', 'status'],
+      institution_masters: ['kind', 'code', 'label', 'institution_type', 'active', 'notes'],
+    };
+    for (const column of required[entityType] ?? []) requireColumn(column);
   }
 
   const prepared: PreparedRow[] = [];
+  const fileKeys = new Set<string>();
+  const periodRanges = new Map<string, Array<{ start: string; end: string }>>();
+  let activeYearRows = 0;
   for (const [index, raw] of body.entries()) {
     const payload: Record<string, string> = {};
     header.forEach((key, column) => {
@@ -520,35 +541,9 @@ async function prepareImport(
     });
     const errors: string[] = [];
     const value = (name: string) => payload[name] ?? '';
+    if (value('sample_only').toLowerCase() === 'yes') errors.push('Example row: replace it with real data or remove this row before committing');
 
-    if (entityType === 'students') {
-      if (!value('first_name')) errors.push('first_name is required');
-      if (!value('class_name')) errors.push('class_name is required');
-      if (!value('section_name')) errors.push('section_name is required');
-      if (value('date_of_birth') && !/^\d{4}-\d{2}-\d{2}$/.test(value('date_of_birth'))) {
-        errors.push('date_of_birth must be YYYY-MM-DD');
-      }
-      if (value('class_name') && value('section_name')) {
-        const section = await getPool().query(
-          `SELECT 1 FROM sections sec
-           JOIN classes c ON c.id = sec.class_id AND c.school_id = sec.school_id
-           JOIN academic_years y ON y.id = sec.academic_year_id AND y.school_id = sec.school_id
-           WHERE sec.school_id = $1 AND y.status = 'active'
-             AND lower(c.name) = lower($2) AND lower(sec.name) = lower($3)`,
-          [schoolId, value('class_name'), value('section_name')],
-        );
-        if (section.rowCount === 0) {
-          errors.push(`No section "${value('section_name')}" in class "${value('class_name')}"`);
-        }
-      }
-      if (value('admission_number')) {
-        const duplicate = await getPool().query(
-          'SELECT 1 FROM students WHERE school_id = $1 AND lower(admission_number) = lower($2)',
-          [schoolId, value('admission_number')],
-        );
-        if (duplicate.rowCount) errors.push('That admission number is already in use');
-      }
-    } else if (entityType === 'library_books') {
+    if (entityType === 'library_books') {
       if (!value('title')) errors.push('title is required');
       const copies = value('copies') || '0';
       if (!/^\d+$/.test(copies) || Number(copies) > 500) {
@@ -561,7 +556,7 @@ async function prepareImport(
         );
         if (category.rowCount === 0) errors.push('That category code was not found');
       }
-    } else {
+    } else if (entityType === 'vendors') {
       if (!value('name')) errors.push('name is required');
       if (value('email') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value('email'))) {
         errors.push('email is not valid');
@@ -576,6 +571,121 @@ async function prepareImport(
         );
         if (duplicate.rowCount) errors.push('That vendor code is already in use');
       }
+    } else {
+      const rowNumber = index + 2;
+      const duplicate = (key: string, label: string) => {
+        if (!value(key)) return;
+        const normalized = `${key}:${value(key).toLocaleLowerCase()}`;
+        if (fileKeys.has(normalized)) errors.push(`${label} is duplicated in this file`);
+        fileKeys.add(normalized);
+      };
+      const validStatus = (allowed: string[]) => {
+        if (value('status') && !allowed.includes(value('status').toLowerCase())) errors.push(`status must be ${allowed.join(', ')}`);
+      };
+      const checkDuplicate = async (table: string, column: string, key: string, label: string) => {
+        if (!value(key)) return;
+        const exists = await getPool().query(`SELECT 1 FROM ${table} WHERE school_id=$1 AND lower(${column})=lower($2) LIMIT 1`, [schoolId, value(key)]);
+        if (exists.rowCount) errors.push(`${label} already exists in this school`);
+      };
+      if (entityType === 'academic_years') {
+        if (!value('code') || !value('name') || !/^\d{4}-\d{2}-\d{2}$/.test(value('starts_on')) || !/^\d{4}-\d{2}-\d{2}$/.test(value('ends_on'))) errors.push('code, name and ISO dates (YYYY-MM-DD) are required');
+        if (value('starts_on') && value('ends_on') && value('ends_on') < value('starts_on')) errors.push('ends_on must not be before starts_on');
+        validStatus(['planned', 'active', 'closed', 'archived']);
+        if (value('status').toLowerCase() === 'active') {
+          activeYearRows += 1;
+          const active = await getPool().query("SELECT 1 FROM academic_years WHERE school_id=$1 AND status='active' LIMIT 1", [schoolId]);
+          if (active.rowCount) errors.push('an active academic year already exists; create this year as planned and activate it separately');
+          if (activeYearRows > 1) errors.push('only one row in an import may be active');
+        }
+        duplicate('code', 'Academic year code');
+        await checkDuplicate('academic_years', 'code', 'code', 'Academic year code');
+      } else if (entityType === 'classes') {
+        if (!value('code') || !value('name')) errors.push('code and name are required');
+        if (value('grade_order') && !/^\d+$/.test(value('grade_order'))) errors.push('grade_order must be a whole number');
+        validStatus(['active', 'inactive']); duplicate('code', 'Class code');
+        await checkDuplicate('classes', 'code', 'code', 'Class code');
+      } else if (entityType === 'sections') {
+        if (!value('academic_year_code') || !value('class_code') || !value('code') || !value('name')) errors.push('academic_year_code, class_code, code and name are required');
+        if (value('capacity') && (!/^\d+$/.test(value('capacity')) || Number(value('capacity')) > 10000)) errors.push('capacity must be a whole number from 0 to 10000');
+        validStatus(['active', 'inactive']);
+        const refs = await getPool().query(`SELECT y.id AS year_id,c.id AS class_id FROM academic_years y JOIN classes c ON c.school_id=y.school_id WHERE y.school_id=$1 AND lower(y.code)=lower($2) AND lower(c.code)=lower($3)`, [schoolId, value('academic_year_code'), value('class_code')]);
+        if (!refs.rowCount) errors.push('academic_year_code or class_code was not found in this school');
+        else if (value('code')) {
+          const ref = refs.rows[0]!;
+          const key = `section:${ref.year_id}:${ref.class_id}:${value('code').toLowerCase()}`;
+          if (fileKeys.has(key)) errors.push('section code is duplicated for this class and year in the file');
+          fileKeys.add(key);
+        }
+        if (value('code')) {
+          const exists = await getPool().query(`SELECT 1 FROM sections sec JOIN academic_years y ON y.school_id=sec.school_id AND y.id=sec.academic_year_id JOIN classes c ON c.school_id=sec.school_id AND c.id=sec.class_id WHERE sec.school_id=$1 AND lower(y.code)=lower($2) AND lower(c.code)=lower($3) AND lower(sec.code)=lower($4) LIMIT 1`, [schoolId, value('academic_year_code'), value('class_code'), value('code')]);
+          if (exists.rowCount) errors.push('section code already exists for this class and year');
+        }
+      } else if (entityType === 'subjects') {
+        if (!value('code') || !value('name')) errors.push('code and name are required');
+        validStatus(['active', 'inactive']); duplicate('code', 'Subject code');
+        await checkDuplicate('subjects', 'code', 'code', 'Subject code');
+      } else if (entityType === 'subject_offerings') {
+        if (!value('academic_year_code') || !value('subject_code') || !value('class_code')) errors.push('academic_year_code, subject_code and class_code are required');
+        const refs = await getPool().query(`SELECT y.id AS year_id,s.id AS subject_id,c.id AS class_id FROM academic_years y JOIN subjects s ON s.school_id=y.school_id JOIN classes c ON c.school_id=y.school_id WHERE y.school_id=$1 AND lower(y.code)=lower($2) AND lower(s.code)=lower($3) AND lower(c.code)=lower($4)`, [schoolId, value('academic_year_code'), value('subject_code'), value('class_code')]);
+        if (!refs.rowCount) errors.push('academic year, subject or class code was not found in this school');
+        else {
+          const ref = refs.rows[0]!;
+          const duplicateKey = `offering:${ref.year_id}:${ref.subject_id}:${ref.class_id}`;
+          if (fileKeys.has(duplicateKey)) errors.push('this subject/class/year offering is duplicated in the file');
+          fileKeys.add(duplicateKey);
+          const existing = await getPool().query('SELECT 1 FROM subject_class_offerings WHERE school_id=$1 AND academic_year_id=$2 AND subject_id=$3 AND class_id=$4', [schoolId, ref.year_id, ref.subject_id, ref.class_id]);
+          if (existing.rowCount) errors.push('this class-subject mapping already exists');
+        }
+      } else if (entityType === 'staff') {
+        if (!value('employee_number') || !value('first_name') || !value('designation')) errors.push('employee_number, first_name and designation are required');
+        if (value('email') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value('email'))) errors.push('email is not valid');
+        if (value('joined_on') && !/^\d{4}-\d{2}-\d{2}$/.test(value('joined_on'))) errors.push('joined_on must use YYYY-MM-DD');
+        validStatus(['active', 'on_leave', 'inactive', 'left']); duplicate('employee_number', 'Employee number');
+        await checkDuplicate('staff', 'employee_number', 'employee_number', 'Employee number');
+      } else if (entityType === 'rooms') {
+        if (!value('code') || !value('name')) errors.push('code and name are required');
+        if (value('capacity') && (!/^\d+$/.test(value('capacity')) || Number(value('capacity')) > 10000)) errors.push('capacity must be a whole number from 0 to 10000');
+        validStatus(['active', 'inactive']); duplicate('code', 'Room code');
+        await checkDuplicate('rooms', 'code', 'code', 'Room code');
+      } else if (entityType === 'timetable_periods') {
+        const validTime = (time: string) => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time);
+        if (!value('academic_year_code') || !value('name') || !/^\d+$/.test(value('sequence_no')) || !validTime(value('starts_at')) || !validTime(value('ends_at'))) errors.push('academic_year_code, name, numeric sequence_no and valid HH:MM start/end times are required');
+        if (value('starts_at') && value('ends_at') && value('ends_at') <= value('starts_at')) errors.push('ends_at must be later than starts_at');
+        if (value('is_break') && !['true', 'false'].includes(value('is_break').toLowerCase())) errors.push('is_break must be true or false');
+        const year = await getPool().query('SELECT id FROM academic_years WHERE school_id=$1 AND lower(code)=lower($2)', [schoolId, value('academic_year_code')]);
+        if (!year.rowCount) errors.push('academic_year_code was not found in this school');
+        else {
+          const yearId = year.rows[0]!.id;
+          const key = `period:${yearId}:${value('sequence_no')}`;
+          if (fileKeys.has(key)) errors.push('sequence_no is duplicated in this academic year in the file');
+          fileKeys.add(key);
+          const duplicate = await getPool().query('SELECT 1 FROM timetable_periods WHERE school_id=$1 AND academic_year_id=$2 AND sequence_no=$3', [schoolId, yearId, Number(value('sequence_no'))]);
+          if (duplicate.rowCount) errors.push('sequence_no already exists in this academic year');
+          if (validTime(value('starts_at')) && validTime(value('ends_at')) && value('ends_at') > value('starts_at')) {
+            const ranges = periodRanges.get(yearId) ?? [];
+            if (ranges.some((range) => range.start < value('ends_at') && range.end > value('starts_at'))) errors.push('period time range overlaps another row in this file');
+            ranges.push({ start: value('starts_at'), end: value('ends_at') });
+            periodRanges.set(yearId, ranges);
+            const overlap = await getPool().query('SELECT 1 FROM timetable_periods WHERE school_id=$1 AND academic_year_id=$2 AND starts_at < $4::time AND ends_at > $3::time LIMIT 1', [schoolId, yearId, value('starts_at'), value('ends_at')]);
+            if (overlap.rowCount) errors.push('period time range overlaps an existing period');
+          }
+        }
+      } else if (entityType === 'fee_heads') {
+        if (!value('code') || !value('name')) errors.push('code and name are required');
+        validStatus(['active', 'inactive']); duplicate('code', 'Fee head code');
+        await checkDuplicate('fee_heads', 'code', 'code', 'Fee head code');
+      } else if (entityType === 'institution_masters') {
+        if (!value('kind') || !/^[a-z][a-z0-9_]{1,59}$/.test(value('kind'))) errors.push('kind must use lowercase letters, digits or underscores');
+        if (!value('code') || !value('label') || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,59}$/.test(value('code'))) errors.push('valid code and label are required');
+        if (value('institution_type') && !['all', 'school', 'college', 'university'].includes(value('institution_type'))) errors.push('institution_type must be all, school, college or university');
+        if (value('active') && !['true', 'false'].includes(value('active').toLowerCase())) errors.push('active must be true or false');
+        const masterKey = `institution-master:${value('kind').toLowerCase()}:${value('code').toLowerCase()}`;
+        if (value('kind') && value('code') && fileKeys.has(masterKey)) errors.push('master code is duplicated for this kind in the file');
+        if (value('kind') && value('code')) fileKeys.add(masterKey);
+        const exists = await getPool().query('SELECT 1 FROM institution_masters WHERE school_id=$1 AND kind=$2 AND lower(code)=lower($3) LIMIT 1', [schoolId, value('kind'), value('code')]);
+        if (exists.rowCount) errors.push('master code already exists for this kind');
+      }
+      void rowNumber;
     }
 
     prepared.push({ rowNumber: index + 2, payload, errors });
@@ -638,6 +748,28 @@ async function commitRow(
         toIsoDate(activeYear.starts_on) || new Date().toISOString().slice(0, 10),
       ],
     );
+    if (payload.guardian_first_name) {
+      const guardian = payload.guardian_email
+        ? await client.query<{ id: string }>(
+            'SELECT id FROM guardians WHERE school_id = $1 AND lower(email) = lower($2) LIMIT 1',
+            [schoolId, payload.guardian_email],
+          )
+        : await client.query<{ id: string }>(
+            'SELECT id FROM guardians WHERE school_id = $1 AND phone = $2 LIMIT 1',
+            [schoolId, payload.guardian_phone],
+          );
+      const guardianId = guardian.rows[0]?.id ?? (await client.query<{ id: string }>(
+        `INSERT INTO guardians (school_id, first_name, last_name, email, phone)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [schoolId, payload.guardian_first_name, payload.guardian_last_name || null, payload.guardian_email || null, payload.guardian_phone || null],
+      )).rows[0]!.id;
+      await client.query(
+        `INSERT INTO student_guardians
+           (school_id, student_id, guardian_id, relationship_type, is_primary, portal_access_status)
+         VALUES ($1, $2, $3, $4, $5, 'pending') ON CONFLICT (student_id, guardian_id) DO NOTHING`,
+        [schoolId, studentId, guardianId, payload.guardian_relationship || 'parent', payload.guardian_is_primary?.toLowerCase() === 'true'],
+      );
+    }
     return studentId;
   }
 
@@ -675,6 +807,91 @@ async function commitRow(
       );
     }
     return bookId;
+  }
+
+  if (entityType === 'academic_years') {
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO academic_years(school_id,code,name,starts_on,ends_on,status) VALUES($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [schoolId, payload.code, payload.name, payload.starts_on, payload.ends_on, payload.status || 'planned'],
+    );
+    return result.rows[0]!.id;
+  }
+  if (entityType === 'classes') {
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO classes(school_id,code,name,grade_order,status) VALUES($1,$2,$3,$4,$5) RETURNING id`,
+      [schoolId, payload.code, payload.name, payload.grade_order ? Number(payload.grade_order) : null, payload.status || 'active'],
+    );
+    return result.rows[0]!.id;
+  }
+  if (entityType === 'sections') {
+    const refs = await client.query<{ year_id: string; class_id: string }>(
+      `SELECT y.id AS year_id,c.id AS class_id FROM academic_years y JOIN classes c ON c.school_id=y.school_id WHERE y.school_id=$1 AND lower(y.code)=lower($2) AND lower(c.code)=lower($3)`,
+      [schoolId, payload.academic_year_code, payload.class_code],
+    );
+    const ref = refs.rows[0];
+    if (!ref) throw badRequest('The academic year or class reference no longer exists in this school');
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO sections(school_id,academic_year_id,class_id,code,name,capacity,status) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [schoolId, ref.year_id, ref.class_id, payload.code, payload.name, payload.capacity ? Number(payload.capacity) : null, payload.status || 'active'],
+    );
+    return result.rows[0]!.id;
+  }
+  if (entityType === 'subjects') {
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO subjects(school_id,code,name,subject_type,status) VALUES($1,$2,$3,$4,$5) RETURNING id`,
+      [schoolId, payload.code, payload.name, payload.subject_type || 'academic', payload.status || 'active'],
+    );
+    return result.rows[0]!.id;
+  }
+  if (entityType === 'subject_offerings') {
+    const refs = await client.query<{ academic_year_id: string; subject_id: string; class_id: string }>(
+      `SELECT y.id AS academic_year_id,s.id AS subject_id,c.id AS class_id FROM academic_years y JOIN subjects s ON s.school_id=y.school_id JOIN classes c ON c.school_id=y.school_id WHERE y.school_id=$1 AND lower(y.code)=lower($2) AND lower(s.code)=lower($3) AND lower(c.code)=lower($4)`,
+      [schoolId, payload.academic_year_code, payload.subject_code, payload.class_code],
+    );
+    const ref = refs.rows[0];
+    if (!ref) throw badRequest('The academic year, subject or class reference no longer exists in this school');
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO subject_class_offerings(school_id,academic_year_id,subject_id,class_id,updated_by) VALUES($1,$2,$3,$4,$5) RETURNING subject_id AS id`,
+      [schoolId, ref.academic_year_id, ref.subject_id, ref.class_id, actorUserId],
+    );
+    return result.rows[0]!.id;
+  }
+  if (entityType === 'staff') {
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO staff(school_id,employee_number,first_name,last_name,email,phone,designation,department,joined_on,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      [schoolId, payload.employee_number, payload.first_name, payload.last_name || null, payload.email || null, payload.phone || null, payload.designation, payload.department || null, payload.joined_on || null, payload.status || 'active'],
+    );
+    return result.rows[0]!.id;
+  }
+  if (entityType === 'rooms') {
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO rooms(school_id,code,name,capacity,status) VALUES($1,$2,$3,$4,$5) RETURNING id`,
+      [schoolId, payload.code, payload.name, payload.capacity ? Number(payload.capacity) : null, payload.status || 'active'],
+    );
+    return result.rows[0]!.id;
+  }
+  if (entityType === 'timetable_periods') {
+    const year = await client.query<{ id: string }>('SELECT id FROM academic_years WHERE school_id=$1 AND lower(code)=lower($2)', [schoolId, payload.academic_year_code]);
+    if (!year.rows[0]) throw badRequest('The academic year reference no longer exists in this school');
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO timetable_periods(school_id,academic_year_id,name,sequence_no,starts_at,ends_at,is_break) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [schoolId, year.rows[0].id, payload.name, Number(payload.sequence_no), payload.starts_at, payload.ends_at, payload.is_break.toLowerCase() === 'true'],
+    );
+    return result.rows[0]!.id;
+  }
+  if (entityType === 'fee_heads') {
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO fee_heads(school_id,code,name,description,status) VALUES($1,$2,$3,$4,$5) RETURNING id`,
+      [schoolId, payload.code, payload.name, payload.description || null, payload.status || 'active'],
+    );
+    return result.rows[0]!.id;
+  }
+  if (entityType === 'institution_masters') {
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO institution_masters(school_id,kind,code,label,institution_type,active,notes) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [schoolId, payload.kind, payload.code, payload.label, payload.institution_type || 'all', payload.active ? payload.active.toLowerCase() === 'true' : true, payload.notes || ''],
+    );
+    return result.rows[0]!.id;
   }
 
   const code = payload.code || (await nextVendorCode(client, schoolId));

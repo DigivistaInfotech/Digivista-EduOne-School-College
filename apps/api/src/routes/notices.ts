@@ -74,14 +74,16 @@ export async function registerNoticeRoutes(app: FastifyInstance): Promise<void> 
 
       const created = await withTransaction(async (client) => {
         const { rows } = await client.query<{ id: string }>(
-          `INSERT INTO notices
-             (school_id, title, body, audience, status, pinned, expires_on, created_by)
-           VALUES ($1, $2, $3, $4, 'draft', $5, $6, $7)
+        `INSERT INTO notices
+             (school_id, title, body, category, priority, audience, status, pinned, expires_on, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9)
            RETURNING id`,
           [
             schoolId,
             input.title,
             input.body,
+            input.category,
+            input.priority,
             input.audience,
             input.pinned,
             input.expiresOn ?? null,
@@ -122,13 +124,15 @@ export async function registerNoticeRoutes(app: FastifyInstance): Promise<void> 
           id: string;
           title: string;
           body: string;
+          category: NoticeRecord['category'];
+          priority: NoticeRecord['priority'];
           audience: NoticeRecord['audience'];
           status: NoticeRecord['status'];
           pinned: boolean;
           published_at: Date | null;
           expires_on: string | null;
         }>(
-          `SELECT id, title, body, audience, status, pinned, published_at, expires_on
+          `SELECT id, title, body, category, priority, audience, status, pinned, published_at, expires_on
            FROM notices WHERE school_id = $1 AND id = $2 FOR UPDATE`,
           [schoolId, id],
         );
@@ -145,14 +149,16 @@ export async function registerNoticeRoutes(app: FastifyInstance): Promise<void> 
 
         await client.query(
           `UPDATE notices
-           SET title = $3, body = $4, audience = $5, status = $6, pinned = $7,
-               expires_on = $8, published_at = $9
+           SET title = $3, body = $4, category = $5, priority = $6, audience = $7, status = $8, pinned = $9,
+               expires_on = $10, published_at = $11
            WHERE school_id = $1 AND id = $2`,
           [
             schoolId,
             id,
             input.title ?? row.title,
             input.body ?? row.body,
+            input.category ?? row.category,
+            input.priority ?? row.priority,
             input.audience ?? row.audience,
             status,
             input.pinned ?? row.pinned,
@@ -396,6 +402,8 @@ interface NoticeRow {
   id: string;
   title: string;
   body: string;
+  category: NoticeRecord['category'];
+  priority: NoticeRecord['priority'];
   audience: NoticeRecord['audience'];
   status: NoticeRecord['status'];
   pinned: boolean;
@@ -411,7 +419,7 @@ interface NoticeRow {
 
 function noticeSelect(actorParam: string): string {
   return `
-  SELECT n.id, n.title, n.body, n.audience, n.status, n.pinned,
+  SELECT n.id, n.title, n.body, n.category, n.priority, n.audience, n.status, n.pinned,
          n.published_at, n.expires_on, u.display_name AS created_by_name,
          n.created_at, n.updated_at,
          COALESCE((
@@ -445,6 +453,8 @@ function mapNotice(row: NoticeRow, manager: boolean): NoticeRecord {
     id: row.id,
     title: row.title,
     body: row.body,
+    category: row.category,
+    priority: row.priority,
     audience: row.audience,
     status: row.status,
     pinned: row.pinned,

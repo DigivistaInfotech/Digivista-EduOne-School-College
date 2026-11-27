@@ -1,16 +1,17 @@
-import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState, type ReactNode } from 'react';
-import { useSchoolId, useSchoolTimezone } from '../auth/AuthContext';
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState, type ReactNode } from "react";
+import { useAuth, useSchoolId, useSchoolTimezone } from "../auth/AuthContext";
 import {
   getAttendanceReport,
   getFeeReport,
   listAcademicYears,
   reportExportUrl,
-} from '../lib/endpoints';
-import { errorMessage } from '../lib/api';
-import { formatDate, formatMoney, todayIso } from '../lib/format';
+} from "../lib/endpoints";
+import { errorMessage } from "../lib/api";
+import { formatDate, formatMoney, todayIso } from "../lib/format";
 import {
   Alert,
+  Button,
   Card,
   CardHeader,
   EmptyState,
@@ -21,25 +22,27 @@ import {
   PageHeader,
   Select,
   TableSkeleton,
-} from '../components/ui';
+} from "../components/ui";
 
 export function ReportsPage(): ReactNode {
+  const { membership } = useAuth();
   const schoolId = useSchoolId();
   const timeZone = useSchoolTimezone();
 
-  const [yearId, setYearId] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [yearId, setYearId] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
 
   const years = useQuery({
-    queryKey: ['academic-years', schoolId],
+    queryKey: ["academic-years", schoolId],
     queryFn: () => listAcademicYears(schoolId),
   });
 
   useEffect(() => {
     if (yearId || !years.data) return;
     const preferred =
-      years.data.items.find((year) => year.status === 'active') ?? years.data.items[0];
+      years.data.items.find((year) => year.status === "active") ??
+      years.data.items[0];
     if (preferred) {
       setYearId(preferred.id);
       setFrom(preferred.startsOn);
@@ -48,7 +51,7 @@ export function ReportsPage(): ReactNode {
   }, [years.data, yearId]);
 
   const attendance = useQuery({
-    queryKey: ['report-attendance', schoolId, yearId, from, to],
+    queryKey: ["report-attendance", schoolId, yearId, from, to],
     queryFn: () =>
       getAttendanceReport(schoolId, {
         academicYearId: yearId || undefined,
@@ -59,31 +62,58 @@ export function ReportsPage(): ReactNode {
   });
 
   const fees = useQuery({
-    queryKey: ['report-fees', schoolId, yearId],
-    queryFn: () => getFeeReport(schoolId, { academicYearId: yearId || undefined }),
+    queryKey: ["report-fees", schoolId, yearId],
+    queryFn: () =>
+      getFeeReport(schoolId, { academicYearId: yearId || undefined }),
     enabled: Boolean(yearId),
   });
 
-  const exportHref = (type: 'students' | 'attendance' | 'fees', extra: Record<string, string | undefined> = {}) =>
+  const exportHref = (
+    type: "students" | "attendance" | "fees",
+    extra: Record<string, string | undefined> = {},
+  ) =>
     reportExportUrl(schoolId, type, {
       academicYearId: yearId || undefined,
       ...extra,
     });
 
   return (
-    <div className="space-y-6">
+    <div className="print-surface space-y-6">
       <PageHeader
         title="Reports & exports"
         description="Every figure is calculated from the underlying rows at request time. CSV exports contain the same data you see here, scoped to your permissions."
+        actions={
+          <Button
+            className="print-hide"
+            variant="secondary"
+            onClick={() => window.print()}
+          >
+            Print report
+          </Button>
+        }
       />
 
-      <div className="flex flex-wrap items-end gap-4">
+      <div className="print-only mb-5 hidden border-b border-slate-300 pb-3">
+        <p className="text-xl font-bold">
+          {membership?.schoolName ?? "School"}
+        </p>
+        <p className="text-sm">
+          Attendance and fee summary ·{" "}
+          {years.data?.items.find((year) => year.id === yearId)?.name ??
+            "Academic year not selected"}
+        </p>
+        <p className="text-xs">Generated {formatDate(todayIso(timeZone))}</p>
+      </div>
+
+      <div className="print-hide flex flex-wrap items-end gap-4">
         <Field label="Academic year" htmlFor="report-year">
           <Select
             id="report-year"
             value={yearId}
             onChange={(event) => {
-              const year = years.data?.items.find((entry) => entry.id === event.target.value);
+              const year = years.data?.items.find(
+                (entry) => entry.id === event.target.value,
+              );
               setYearId(event.target.value);
               if (year) {
                 setFrom(year.startsOn);
@@ -95,7 +125,7 @@ export function ReportsPage(): ReactNode {
             {years.data?.items.map((year) => (
               <option key={year.id} value={year.id}>
                 {year.name}
-                {year.status === 'active' ? ' (active)' : ''}
+                {year.status === "active" ? " (active)" : ""}
               </option>
             ))}
           </Select>
@@ -123,19 +153,27 @@ export function ReportsPage(): ReactNode {
           title="Attendance summary"
           description="Attendance rate counts present and late as full days and half days as half: (present + late + 0.5 × half_day) ÷ marked days. Excused days count as marked but not attended."
           actions={
-            <LinkButton
-              variant="secondary"
-              href={exportHref('attendance', { from: from || undefined, to: to || undefined })}
-              download
-            >
-              Export attendance CSV
-            </LinkButton>
+            <div className="print-hide">
+              <LinkButton
+                variant="secondary"
+                href={exportHref("attendance", {
+                  from: from || undefined,
+                  to: to || undefined,
+                })}
+                download
+              >
+                Export attendance CSV
+              </LinkButton>
+            </div>
           }
         />
         {attendance.isPending ? (
           <TableSkeleton rows={5} columns={8} />
         ) : attendance.isError ? (
-          <ErrorState message={errorMessage(attendance.error)} onRetry={() => void attendance.refetch()} />
+          <ErrorState
+            message={errorMessage(attendance.error)}
+            onRetry={() => void attendance.refetch()}
+          />
         ) : attendance.data.sections.length === 0 ? (
           <EmptyState
             title="No attendance recorded"
@@ -161,14 +199,26 @@ export function ReportsPage(): ReactNode {
               <tbody>
                 {attendance.data.sections.map((section) => (
                   <tr key={section.sectionId}>
-                    <td className="font-medium text-slate-900">{section.className}</td>
+                    <td className="font-medium text-slate-900">
+                      {section.className}
+                    </td>
                     <td>{section.sectionName}</td>
-                    <td className="text-right tabular-nums">{section.totalMarked}</td>
-                    <td className="text-right tabular-nums">{section.present}</td>
-                    <td className="text-right tabular-nums">{section.absent}</td>
+                    <td className="text-right tabular-nums">
+                      {section.totalMarked}
+                    </td>
+                    <td className="text-right tabular-nums">
+                      {section.present}
+                    </td>
+                    <td className="text-right tabular-nums">
+                      {section.absent}
+                    </td>
                     <td className="text-right tabular-nums">{section.late}</td>
-                    <td className="text-right tabular-nums">{section.halfDay}</td>
-                    <td className="text-right tabular-nums">{section.excused}</td>
+                    <td className="text-right tabular-nums">
+                      {section.halfDay}
+                    </td>
+                    <td className="text-right tabular-nums">
+                      {section.excused}
+                    </td>
                     <td className="text-right tabular-nums font-medium">
                       {section.attendanceRate.toFixed(1)}%
                     </td>
@@ -183,19 +233,32 @@ export function ReportsPage(): ReactNode {
       <Card>
         <CardHeader
           title="Fees by head"
-          description="Charged uses each charge's gross amount; collected is all recorded payment allocations; outstanding equals charged minus concession minus collected plus approved refunds."
+          description="Charged is net of concessions and write-offs. Collected is recorded payment allocations; outstanding is net charged minus collected. Refunds remain visible in the receipt and refund ledger and are not added into this summary."
           actions={
-            <LinkButton variant="secondary" href={exportHref('fees')} download>
-              Export fee ledger CSV
-            </LinkButton>
+            <div className="print-hide">
+              <LinkButton
+                variant="secondary"
+                href={exportHref("fees")}
+                download
+              >
+                Export fee ledger CSV
+              </LinkButton>
+            </div>
           }
         />
         {fees.isPending ? (
           <TableSkeleton rows={4} columns={4} />
         ) : fees.isError ? (
-          <ErrorState message={errorMessage(fees.error)} onRetry={() => void fees.refetch()} />
+          <ErrorState
+            message={errorMessage(fees.error)}
+            onRetry={() => void fees.refetch()}
+          />
         ) : fees.data.byHead.length === 0 ? (
-          <EmptyState title="No fee charges" description="Generate charges to populate this report." icon="clipboard" />
+          <EmptyState
+            title="No fee charges"
+            description="Generate charges to populate this report."
+            icon="clipboard"
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="data-table">
@@ -210,10 +273,18 @@ export function ReportsPage(): ReactNode {
               <tbody>
                 {fees.data.byHead.map((head) => (
                   <tr key={head.feeHeadId}>
-                    <td className="font-medium text-slate-900">{head.feeHeadName}</td>
-                    <td className="text-right tabular-nums">{formatMoney(head.charged)}</td>
-                    <td className="text-right tabular-nums">{formatMoney(head.collected)}</td>
-                    <td className="text-right tabular-nums">{formatMoney(head.outstanding)}</td>
+                    <td className="font-medium text-slate-900">
+                      {head.feeHeadName}
+                    </td>
+                    <td className="text-right tabular-nums">
+                      {formatMoney(head.charged)}
+                    </td>
+                    <td className="text-right tabular-nums">
+                      {formatMoney(head.collected)}
+                    </td>
+                    <td className="text-right tabular-nums">
+                      {formatMoney(head.outstanding)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -224,13 +295,23 @@ export function ReportsPage(): ReactNode {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader title="Fees by class" description="The same ledger totals grouped by class." />
+          <CardHeader
+            title="Fees by class"
+            description="The same ledger totals grouped by class."
+          />
           {fees.isPending ? (
             <TableSkeleton rows={4} columns={4} />
           ) : fees.isError ? (
-            <ErrorState message={errorMessage(fees.error)} onRetry={() => void fees.refetch()} />
+            <ErrorState
+              message={errorMessage(fees.error)}
+              onRetry={() => void fees.refetch()}
+            />
           ) : fees.data.byClass.length === 0 ? (
-            <EmptyState title="No class data" description="Charges grouped by class appear here." icon="layers" />
+            <EmptyState
+              title="No class data"
+              description="Charges grouped by class appear here."
+              icon="layers"
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="data-table">
@@ -245,10 +326,18 @@ export function ReportsPage(): ReactNode {
                 <tbody>
                   {fees.data.byClass.map((klass) => (
                     <tr key={klass.classId}>
-                      <td className="font-medium text-slate-900">{klass.className}</td>
-                      <td className="text-right tabular-nums">{formatMoney(klass.charged)}</td>
-                      <td className="text-right tabular-nums">{formatMoney(klass.collected)}</td>
-                      <td className="text-right tabular-nums">{formatMoney(klass.outstanding)}</td>
+                      <td className="font-medium text-slate-900">
+                        {klass.className}
+                      </td>
+                      <td className="text-right tabular-nums">
+                        {formatMoney(klass.charged)}
+                      </td>
+                      <td className="text-right tabular-nums">
+                        {formatMoney(klass.collected)}
+                      </td>
+                      <td className="text-right tabular-nums">
+                        {formatMoney(klass.outstanding)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -258,13 +347,23 @@ export function ReportsPage(): ReactNode {
         </Card>
 
         <Card>
-          <CardHeader title="Collections by method" description="Receipts counted at face value, grouped by payment method." />
+          <CardHeader
+            title="Collections by method"
+            description="Receipts counted at face value, grouped by payment method."
+          />
           {fees.isPending ? (
             <TableSkeleton rows={4} columns={3} />
           ) : fees.isError ? (
-            <ErrorState message={errorMessage(fees.error)} onRetry={() => void fees.refetch()} />
+            <ErrorState
+              message={errorMessage(fees.error)}
+              onRetry={() => void fees.refetch()}
+            />
           ) : fees.data.byMethod.length === 0 ? (
-            <EmptyState title="No payments" description="Record a receipt to populate this breakdown." icon="chart" />
+            <EmptyState
+              title="No payments"
+              description="Record a receipt to populate this breakdown."
+              icon="chart"
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="data-table">
@@ -279,10 +378,14 @@ export function ReportsPage(): ReactNode {
                   {fees.data.byMethod.map((method) => (
                     <tr key={method.method}>
                       <td className="font-medium capitalize text-slate-900">
-                        {method.method.replace(/_/g, ' ')}
+                        {method.method.replace(/_/g, " ")}
                       </td>
-                      <td className="text-right tabular-nums">{method.count}</td>
-                      <td className="text-right tabular-nums">{formatMoney(method.amount)}</td>
+                      <td className="text-right tabular-nums">
+                        {method.count}
+                      </td>
+                      <td className="text-right tabular-nums">
+                        {formatMoney(method.amount)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -298,15 +401,23 @@ export function ReportsPage(): ReactNode {
           description="A flat roster of enrolled students for the selected academic year."
         />
         <div className="space-y-3 px-5 pb-5">
-          <LinkButton variant="secondary" href={exportHref('students')} download>
-            Export students CSV
-          </LinkButton>
+          <div className="print-hide">
+            <LinkButton
+              variant="secondary"
+              href={exportHref("students")}
+              download
+            >
+              Export students CSV
+            </LinkButton>
+          </div>
           <Alert tone="info">
-            Exports use your current scope: a teacher receives only the sections they can see, and
-            the file is generated on the server so it always matches the database.
+            Exports use your current scope: a teacher receives only the sections
+            they can see, and the file is generated on the server so it always
+            matches the database.
           </Alert>
           <p className="text-xs text-slate-400">
-            Generated {formatDate(todayIso(timeZone))} · times use the school timezone.
+            Generated {formatDate(todayIso(timeZone))} · times use the school
+            timezone.
           </p>
         </div>
       </Card>

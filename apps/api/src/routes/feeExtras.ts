@@ -1,4 +1,4 @@
-import { getOperatingPolicy } from '../lib/institutionPolicy';
+import { getOperatingPolicy } from "../lib/institutionPolicy";
 import {
   installmentPlanInput,
   lateFeeRuleInput,
@@ -9,18 +9,18 @@ import {
   type LateFeeAssessmentRecord,
   type LateFeeRuleRecord,
   type LateFeeRunResult,
-} from '@erp/shared';
-import type { FastifyInstance } from 'fastify';
-import type pg from 'pg';
-import { z } from 'zod';
-import { fullName } from '@erp/core';
-import { getActor, requirePermission, requestMeta } from '../auth/guards';
-import type { ActorContext } from '../auth/session';
-import { getPool, withTransaction } from '../db';
-import { recordAudit } from '../lib/audit';
-import { badRequest, notFound, parseInput } from '../lib/errors';
-import { assertGuardianLinked } from '../lib/portal';
-import { toIsoDate, toNumber, todayInTimeZone } from '../lib/format';
+} from "@erp/shared";
+import type { FastifyInstance } from "fastify";
+import type pg from "pg";
+import { z } from "zod";
+import { fullName } from "@erp/core";
+import { getActor, requirePermission, requestMeta } from "../auth/guards";
+import type { ActorContext } from "../auth/session";
+import { getPool, withTransaction } from "../db";
+import { recordAudit } from "../lib/audit";
+import { badRequest, notFound, parseInput } from "../lib/errors";
+import { assertGuardianLinked } from "../lib/portal";
+import { toIsoDate, toNumber, todayInTimeZone } from "../lib/format";
 
 const schoolParams = z.object({ schoolId: uuid });
 const idParams = z.object({ schoolId: uuid, id: uuid });
@@ -29,7 +29,7 @@ const studentParams = z.object({ schoolId: uuid, studentId: uuid });
 const paymentParams = z.object({ schoolId: uuid, paymentId: uuid });
 const yearQuery = z.object({ academicYearId: uuid.optional() });
 
-const LATE_FEE_HEAD = { code: 'LATE-FEE', name: 'Late fee' };
+const LATE_FEE_HEAD = { code: "LATE-FEE", name: "Late fee" };
 
 /**
  * Fee extensions: late-fee rules and assessment, instalment schedules, and
@@ -37,12 +37,14 @@ const LATE_FEE_HEAD = { code: 'LATE-FEE', name: 'Late fee' };
  * original charge is never rewritten. Instalment status is derived from the
  * charge-level allocation, not from a second ledger.
  */
-export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<void> {
+export async function registerFeeExtrasRoutes(
+  app: FastifyInstance,
+): Promise<void> {
   /* ------------------------------- late fee rules --------------------------- */
 
   app.get(
-    '/api/schools/:schoolId/fee-late-rules',
-    { preHandler: requirePermission('fees.view') },
+    "/api/schools/:schoolId/fee-late-rules",
+    { preHandler: requirePermission("fees.view") },
     async (request) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const { rows } = await getPool().query<LateRuleRow>(
@@ -55,8 +57,8 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
   );
 
   app.post(
-    '/api/schools/:schoolId/fee-late-rules',
-    { preHandler: requirePermission('fees.charge.create') },
+    "/api/schools/:schoolId/fee-late-rules",
+    { preHandler: requirePermission("fees.charge.create") },
     async (request, reply) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const actor = getActor(request);
@@ -67,15 +69,22 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
              (school_id, name, grace_days, percent_per_month, max_amount, active)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id`,
-          [schoolId, input.name, input.graceDays, input.percentPerMonth, input.maxAmount, input.active],
+          [
+            schoolId,
+            input.name,
+            input.graceDays,
+            input.percentPerMonth,
+            input.maxAmount,
+            input.active,
+          ],
         );
         await recordAudit(client, {
           schoolId,
           actorUserId: actor.userId,
-          action: 'fees.late_rule_created',
-          entityType: 'fee_late_fee_rule',
+          action: "fees.late_rule_created",
+          entityType: "fee_late_fee_rule",
           entityId: rows[0]!.id,
-          outcome: 'success',
+          outcome: "success",
           after: input,
           ...requestMeta(request),
         });
@@ -91,8 +100,8 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
   );
 
   app.patch(
-    '/api/schools/:schoolId/fee-late-rules/:id',
-    { preHandler: requirePermission('fees.charge.create') },
+    "/api/schools/:schoolId/fee-late-rules/:id",
+    { preHandler: requirePermission("fees.charge.create") },
     async (request) => {
       const { schoolId, id } = parseInput(idParams, request.params);
       const actor = getActor(request);
@@ -104,7 +113,7 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
           [schoolId, id],
         );
         const row = existing.rows[0];
-        if (!row) throw notFound('Late fee rule not found');
+        if (!row) throw notFound("Late fee rule not found");
         await client.query(
           `UPDATE fee_late_fee_rules
            SET name = $3, grace_days = $4, percent_per_month = $5, max_amount = $6, active = $7
@@ -122,10 +131,10 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
         await recordAudit(client, {
           schoolId,
           actorUserId: actor.userId,
-          action: 'fees.late_rule_updated',
-          entityType: 'fee_late_fee_rule',
+          action: "fees.late_rule_updated",
+          entityType: "fee_late_fee_rule",
           entityId: id,
-          outcome: 'success',
+          outcome: "success",
           before: mapRule(row),
           after: input,
           ...requestMeta(request),
@@ -143,28 +152,30 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
   /* ----------------------------- late fee assessment ------------------------ */
 
   app.post(
-    '/api/schools/:schoolId/fees/late-fees/run',
-    { preHandler: requirePermission('fees.charge.create') },
+    "/api/schools/:schoolId/fees/late-fees/run",
+    { preHandler: requirePermission("fees.charge.create") },
     async (request) => {
       const { schoolId } = parseInput(schoolParams, request.params);
       const actor = getActor(request);
       const input = parseInput(lateFeeRunInput, request.body);
       const asOf = input.asOf ?? todayInTimeZone(actor.school.timezone);
-      const policy=await getOperatingPolicy(schoolId);
+      const policy = await getOperatingPolicy(schoolId);
 
       const result = await withTransaction(async (client) => {
-        await client.query('SELECT id FROM schools WHERE id=$1 FOR UPDATE',[schoolId]);
+        await client.query("SELECT id FROM schools WHERE id=$1 FOR UPDATE", [
+          schoolId,
+        ]);
         const rule = await client.query<LateRuleRow>(
           `SELECT id, name, grace_days, percent_per_month, max_amount, active
            FROM fee_late_fee_rules WHERE school_id = $1 AND id = $2`,
           [schoolId, input.ruleId],
         );
         const ruleRow = rule.rows[0];
-        if (!ruleRow) throw notFound('Late fee rule not found');
-        if (!ruleRow.active) throw badRequest('That late fee rule is inactive');
+        if (!ruleRow) throw notFound("Late fee rule not found");
+        if (!ruleRow.active) throw badRequest("That late fee rule is inactive");
 
         const params: unknown[] = [schoolId, asOf, ruleRow.grace_days];
-        let yearFilter = '';
+        let yearFilter = "";
         if (input.academicYearId) {
           params.push(input.academicYearId);
           yearFilter = `AND ch.academic_year_id = $${params.length}`;
@@ -174,14 +185,16 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
           id: string;
           student_id: string;
           academic_year_id: string;
-          outstanding: string;due_on:string;grade_order:number|null;
+          outstanding: string;
+          due_on: string;
+          grade_order: number | null;
         }>(
           `SELECT ch.id, ch.student_id, ch.academic_year_id,ch.due_on::text,
                   (SELECT c.grade_order FROM enrollments e JOIN classes c ON c.id=e.class_id WHERE e.school_id=ch.school_id AND e.student_id=ch.student_id AND e.academic_year_id=ch.academic_year_id ORDER BY e.starts_on DESC LIMIT 1) AS grade_order,
                   (ch.amount - ch.concession_amount - ch.write_off_amount - COALESCE((
                     SELECT sum(pa.amount) FROM payment_allocations pa
-                    JOIN payments p ON p.id = pa.payment_id AND p.status = 'recorded'
-                    WHERE pa.charge_id = ch.id
+                    JOIN payments p ON p.id = pa.payment_id AND p.school_id = pa.school_id AND p.status = 'recorded'
+                    WHERE pa.school_id = ch.school_id AND pa.charge_id = ch.id
                   ), 0))::text AS outstanding
            FROM student_charges ch JOIN fee_heads fh ON fh.school_id=ch.school_id AND fh.id=ch.fee_head_id
            WHERE ch.school_id = $1
@@ -199,19 +212,37 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
         const items: LateFeeAssessmentRecord[] = [];
 
         for (const charge of charges.rows) {
-          if(policy.management!=='private'&&(charge.grade_order===null||charge.grade_order<=8)){skipped+=1;continue;}
+          if (
+            policy.management !== "private" &&
+            (charge.grade_order === null || charge.grade_order <= 8)
+          ) {
+            skipped += 1;
+            continue;
+          }
           const outstanding = Math.max(0, toNumber(charge.outstanding));
           if (outstanding <= 0) {
             skipped += 1;
             continue;
           }
-          const overdueDays=Math.floor((Date.parse(`${asOf}T00:00:00Z`)-Date.parse(`${charge.due_on}T00:00:00Z`))/86400000)-ruleRow.grace_days;
-          const months=Math.max(1,Math.ceil(overdueDays/30));
-          let fee = round((outstanding * toNumber(ruleRow.percent_per_month) * months) / 100);
+          const overdueDays =
+            Math.floor(
+              (Date.parse(`${asOf}T00:00:00Z`) -
+                Date.parse(`${charge.due_on}T00:00:00Z`)) /
+                86400000,
+            ) - ruleRow.grace_days;
+          const months = Math.max(1, Math.ceil(overdueDays / 30));
+          let fee = round(
+            (outstanding * toNumber(ruleRow.percent_per_month) * months) / 100,
+          );
           const max = toNumber(ruleRow.max_amount);
           if (max > 0) fee = Math.min(fee, max);
-          const previous=(await client.query<{amount:string}>('SELECT coalesce(sum(fee_amount),0)::text AS amount FROM late_fee_assessments WHERE school_id=$1 AND charge_id=$2',[schoolId,charge.id])).rows[0]!;
-          fee=round(Math.max(0,fee-Number(previous.amount)));
+          const previous = (
+            await client.query<{ amount: string }>(
+              "SELECT coalesce(sum(fee_amount),0)::text AS amount FROM late_fee_assessments WHERE school_id=$1 AND charge_id=$2",
+              [schoolId, charge.id],
+            )
+          ).rows[0]!;
+          fee = round(Math.max(0, fee - Number(previous.amount)));
           if (fee <= 0) {
             skipped += 1;
             continue;
@@ -223,7 +254,15 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (school_id, charge_id, assessed_on) DO NOTHING
              RETURNING id`,
-            [schoolId, charge.id, ruleRow.id, asOf, outstanding, fee, actor.userId],
+            [
+              schoolId,
+              charge.id,
+              ruleRow.id,
+              asOf,
+              outstanding,
+              fee,
+              actor.userId,
+            ],
           );
           if (!assessment.rows[0]) {
             skipped += 1;
@@ -250,11 +289,22 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
              DO UPDATE SET amount = student_charges.amount + EXCLUDED.amount,
                            updated_at = now()
              RETURNING id`,
-            [schoolId, charge.student_id, charge.academic_year_id, headId, fee, asOf, actor.userId],
+            [
+              schoolId,
+              charge.student_id,
+              charge.academic_year_id,
+              headId,
+              fee,
+              asOf,
+              actor.userId,
+            ],
           );
 
-          const student = await client.query<{ first_name: string; last_name: string | null }>(
-            'SELECT first_name, last_name FROM students WHERE school_id = $1 AND id = $2',
+          const student = await client.query<{
+            first_name: string;
+            last_name: string | null;
+          }>(
+            "SELECT first_name, last_name FROM students WHERE school_id = $1 AND id = $2",
             [schoolId, charge.student_id],
           );
 
@@ -263,7 +313,11 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
           items.push({
             id: assessment.rows[0]!.id,
             chargeId: chargeRow.rows[0]!.id,
-            studentName: fullName(student.rows[0]?.first_name, null, student.rows[0]?.last_name),
+            studentName: fullName(
+              student.rows[0]?.first_name,
+              null,
+              student.rows[0]?.last_name,
+            ),
             assessedOn: asOf,
             baseAmount: outstanding,
             feeAmount: fee,
@@ -274,15 +328,20 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
         await recordAudit(client, {
           schoolId,
           actorUserId: actor.userId,
-          action: 'fees.late_fees_assessed',
-          entityType: 'fee_late_fee_rule',
+          action: "fees.late_fees_assessed",
+          entityType: "fee_late_fee_rule",
           entityId: ruleRow.id,
-          outcome: 'success',
+          outcome: "success",
           after: { asOf, assessed, skipped, totalFee },
           ...requestMeta(request),
         });
 
-        const response: LateFeeRunResult = { assessed, skipped, totalFee, items };
+        const response: LateFeeRunResult = {
+          assessed,
+          skipped,
+          totalFee,
+          items,
+        };
         return response;
       });
 
@@ -293,10 +352,13 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
   /* ------------------------------- instalments ------------------------------ */
 
   app.get(
-    '/api/schools/:schoolId/fee-structures/:structureId/installments',
-    { preHandler: requirePermission('fees.view') },
+    "/api/schools/:schoolId/fee-structures/:structureId/installments",
+    { preHandler: requirePermission("fees.view") },
     async (request) => {
-      const { schoolId, structureId } = parseInput(structureParams, request.params);
+      const { schoolId, structureId } = parseInput(
+        structureParams,
+        request.params,
+      );
       const { rows } = await getPool().query<{
         sequence: number;
         label: string;
@@ -319,31 +381,36 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
   );
 
   app.put(
-    '/api/schools/:schoolId/fee-structures/:structureId/installments',
-    { preHandler: requirePermission('fees.charge.create') },
+    "/api/schools/:schoolId/fee-structures/:structureId/installments",
+    { preHandler: requirePermission("fees.charge.create") },
     async (request) => {
-      const { schoolId, structureId } = parseInput(structureParams, request.params);
+      const { schoolId, structureId } = parseInput(
+        structureParams,
+        request.params,
+      );
       const actor = getActor(request);
       const input = parseInput(installmentPlanInput, request.body);
-      const sum = round(input.items.reduce((total, item) => total + item.percent, 0));
+      const sum = round(
+        input.items.reduce((total, item) => total + item.percent, 0),
+      );
       if (Math.abs(sum - 100) > 0.01) {
-        throw badRequest('Instalment percentages must add up to 100', {
+        throw badRequest("Instalment percentages must add up to 100", {
           items: [`They currently add up to ${sum}`],
         });
       }
       const sequences = new Set(input.items.map((item) => item.sequence));
       if (sequences.size !== input.items.length) {
-        throw badRequest('Each instalment needs a unique sequence number');
+        throw badRequest("Each instalment needs a unique sequence number");
       }
 
       await withTransaction(async (client) => {
         const structure = await client.query(
-          'SELECT 1 FROM fee_structures WHERE school_id = $1 AND id = $2',
+          "SELECT 1 FROM fee_structures WHERE school_id = $1 AND id = $2",
           [schoolId, structureId],
         );
-        if (structure.rowCount === 0) throw notFound('Fee structure not found');
+        if (structure.rowCount === 0) throw notFound("Fee structure not found");
         await client.query(
-          'DELETE FROM fee_installment_plans WHERE school_id = $1 AND structure_id = $2',
+          "DELETE FROM fee_installment_plans WHERE school_id = $1 AND structure_id = $2",
           [schoolId, structureId],
         );
         for (const item of input.items) {
@@ -351,16 +418,23 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
             `INSERT INTO fee_installment_plans
                (school_id, structure_id, sequence, label, percent, due_on)
              VALUES ($1, $2, $3, $4, $5, $6)`,
-            [schoolId, structureId, item.sequence, item.label, item.percent, item.dueOn],
+            [
+              schoolId,
+              structureId,
+              item.sequence,
+              item.label,
+              item.percent,
+              item.dueOn,
+            ],
           );
         }
         await recordAudit(client, {
           schoolId,
           actorUserId: actor.userId,
-          action: 'fees.installment_plan_updated',
-          entityType: 'fee_structure',
+          action: "fees.installment_plan_updated",
+          entityType: "fee_structure",
           entityId: structureId,
-          outcome: 'success',
+          outcome: "success",
           after: { items: input.items.length },
           ...requestMeta(request),
         });
@@ -370,65 +444,90 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
   );
 
   app.get(
-    '/api/schools/:schoolId/fees/students/:studentId/installments',
-    { preHandler: requirePermission('fees.view') },
+    "/api/schools/:schoolId/fees/students/:studentId/installments",
+    { preHandler: requirePermission("fees.view") },
     async (request) => {
       const { schoolId, studentId } = parseInput(studentParams, request.params);
       const actor = getActor(request);
       await assertCanViewStudentFees(actor, schoolId, studentId);
       const query = parseInput(yearQuery, request.query);
-      return { items: await loadInstallments(getPool(), schoolId, studentId, query.academicYearId) };
+      return {
+        items: await loadInstallments(
+          getPool(),
+          schoolId,
+          studentId,
+          query.academicYearId,
+        ),
+      };
     },
   );
 
   /* ---------------------------- printable documents ------------------------- */
 
   app.get(
-    '/api/schools/:schoolId/fees/students/:studentId/invoice',
-    { preHandler: requirePermission('fees.view') },
+    "/api/schools/:schoolId/fees/students/:studentId/invoice",
+    { preHandler: requirePermission("fees.view") },
     async (request, reply) => {
       const { schoolId, studentId } = parseInput(studentParams, request.params);
       const actor = getActor(request);
       await assertCanViewStudentFees(actor, schoolId, studentId);
       const query = parseInput(yearQuery, request.query);
-      const html = await renderInvoice(schoolId, studentId, query.academicYearId);
-      return reply.header('content-type', 'text/html; charset=utf-8').send(html);
+      const html = await renderInvoice(
+        schoolId,
+        studentId,
+        query.academicYearId,
+      );
+      return reply
+        .header("content-type", "text/html; charset=utf-8")
+        .send(html);
     },
   );
 
   app.get(
-    '/api/schools/:schoolId/fees/payments/:paymentId/receipt',
-    { preHandler: requirePermission('fees.view') },
+    "/api/schools/:schoolId/fees/payments/:paymentId/receipt",
+    { preHandler: requirePermission("fees.view") },
     async (request, reply) => {
       const { schoolId, paymentId } = parseInput(paymentParams, request.params);
       const actor = getActor(request);
       const payment = await getPool().query<{ student_id: string }>(
-        'SELECT student_id FROM payments WHERE school_id = $1 AND id = $2',
+        "SELECT student_id FROM payments WHERE school_id = $1 AND id = $2",
         [schoolId, paymentId],
       );
-      if (!payment.rows[0]) throw notFound('Payment not found');
-      await assertCanViewStudentFees(actor, schoolId, payment.rows[0].student_id);
+      if (!payment.rows[0]) throw notFound("Payment not found");
+      await assertCanViewStudentFees(
+        actor,
+        schoolId,
+        payment.rows[0].student_id,
+      );
       const html = await renderReceipt(schoolId, paymentId);
-      return reply.header('content-type', 'text/html; charset=utf-8').send(html);
+      return reply
+        .header("content-type", "text/html; charset=utf-8")
+        .send(html);
     },
   );
 
   app.get(
-    '/api/schools/:schoolId/portal/children/:studentId/invoice',
-    { preHandler: requirePermission('guardian.student.view') },
+    "/api/schools/:schoolId/portal/children/:studentId/invoice",
+    { preHandler: requirePermission("guardian.student.view") },
     async (request, reply) => {
       const { schoolId, studentId } = parseInput(studentParams, request.params);
       const actor = getActor(request);
       await assertGuardianLinked(getPool(), schoolId, actor.userId, studentId);
       const query = parseInput(yearQuery, request.query);
-      const html = await renderInvoice(schoolId, studentId, query.academicYearId);
-      return reply.header('content-type', 'text/html; charset=utf-8').send(html);
+      const html = await renderInvoice(
+        schoolId,
+        studentId,
+        query.academicYearId,
+      );
+      return reply
+        .header("content-type", "text/html; charset=utf-8")
+        .send(html);
     },
   );
 
   app.get(
-    '/api/schools/:schoolId/portal/children/:studentId/receipts/:paymentId',
-    { preHandler: requirePermission('guardian.student.view') },
+    "/api/schools/:schoolId/portal/children/:studentId/receipts/:paymentId",
+    { preHandler: requirePermission("guardian.student.view") },
     async (request, reply) => {
       const { schoolId, studentId, paymentId } = parseInput(
         z.object({ schoolId: uuid, studentId: uuid, paymentId: uuid }),
@@ -437,12 +536,14 @@ export async function registerFeeExtrasRoutes(app: FastifyInstance): Promise<voi
       const actor = getActor(request);
       await assertGuardianLinked(getPool(), schoolId, actor.userId, studentId);
       const payment = await getPool().query(
-        'SELECT 1 FROM payments WHERE school_id = $1 AND id = $2 AND student_id = $3',
+        "SELECT 1 FROM payments WHERE school_id = $1 AND id = $2 AND student_id = $3",
         [schoolId, paymentId, studentId],
       );
-      if (!payment.rows[0]) throw notFound('Payment not found');
+      if (!payment.rows[0]) throw notFound("Payment not found");
       const html = await renderReceipt(schoolId, paymentId);
-      return reply.header('content-type', 'text/html; charset=utf-8').send(html);
+      return reply
+        .header("content-type", "text/html; charset=utf-8")
+        .send(html);
     },
   );
 }
@@ -455,7 +556,7 @@ async function assertCanViewStudentFees(
   studentId: string,
 ): Promise<void> {
   // Staff with profile visibility can review any student in their school.
-  if (actor.permissions.has('students.profile.view')) return;
+  if (actor.permissions.has("students.profile.view")) return;
   await assertGuardianLinked(getPool(), schoolId, actor.userId, studentId);
 }
 
@@ -480,13 +581,13 @@ function mapRule(row: LateRuleRow): LateFeeRuleRecord {
 }
 
 async function loadInstallments(
-  client: Pick<pg.Pool, 'query'>,
+  client: Pick<pg.Pool, "query">,
   schoolId: string,
   studentId: string,
   academicYearId: string | undefined,
 ): Promise<ChargeInstallments[]> {
   const params: unknown[] = [schoolId, studentId];
-  let yearFilter = '';
+  let yearFilter = "";
   if (academicYearId) {
     params.push(academicYearId);
     yearFilter = `AND ch.academic_year_id = $${params.length}`;
@@ -503,8 +604,8 @@ async function loadInstallments(
             (ch.amount - ch.concession_amount - ch.write_off_amount)::text AS net,
             COALESCE((
               SELECT sum(pa.amount) FROM payment_allocations pa
-              JOIN payments p ON p.id = pa.payment_id AND p.status = 'recorded'
-              WHERE pa.charge_id = ch.id
+              JOIN payments p ON p.id = pa.payment_id AND p.school_id = pa.school_id AND p.status = 'recorded'
+              WHERE pa.school_id = ch.school_id AND pa.charge_id = ch.id
             ), 0)::text AS paid,
             fs.id AS structure_id
      FROM student_charges ch
@@ -526,7 +627,12 @@ async function loadInstallments(
   for (const row of rows) {
     const amount = toNumber(row.net);
     const paid = Math.min(amount, toNumber(row.paid));
-    let plans: Array<{ sequence: number; label: string; percent: string; due_on: string }> = [];
+    let plans: Array<{
+      sequence: number;
+      label: string;
+      percent: string;
+      due_on: string;
+    }> = [];
     if (row.structure_id) {
       const plan = await client.query<{
         sequence: number;
@@ -547,16 +653,19 @@ async function loadInstallments(
       const installmentAmount = round((amount * toNumber(plan.percent)) / 100);
       const before = cumulative;
       cumulative = round(cumulative + installmentAmount);
-      const paidForThis = Math.min(installmentAmount, Math.max(0, paid - before));
+      const paidForThis = Math.min(
+        installmentAmount,
+        Math.max(0, paid - before),
+      );
       const dueOn = toIsoDate(plan.due_on);
-      const status: InstallmentRecord['status'] =
+      const status: InstallmentRecord["status"] =
         paidForThis >= installmentAmount
-          ? 'paid'
+          ? "paid"
           : paidForThis > 0
-            ? 'partial'
+            ? "partial"
             : dueOn < today
-              ? 'overdue'
-              : 'pending';
+              ? "overdue"
+              : "pending";
       return {
         sequence: plan.sequence,
         label: plan.label,
@@ -584,11 +693,14 @@ async function renderInvoice(
   studentId: string,
   academicYearId: string | undefined,
 ): Promise<string> {
-  const school = await getPool().query<{ name: string; code: string; address: string | null }>(
-    `SELECT name, code, NULL::text AS address FROM schools WHERE id = $1`,
-    [schoolId],
-  );
-  if (!school.rows[0]) throw notFound('School not found');
+  const school = await getPool().query<{
+    name: string;
+    code: string;
+    address: string | null;
+  }>(`SELECT name, code, NULL::text AS address FROM schools WHERE id = $1`, [
+    schoolId,
+  ]);
+  if (!school.rows[0]) throw notFound("School not found");
   const student = await getPool().query<{
     first_name: string;
     middle_name: string | null;
@@ -611,16 +723,16 @@ async function renderInvoice(
     [schoolId, studentId],
   );
   const studentRow = student.rows[0];
-  if (!studentRow) throw notFound('Student not found');
+  if (!studentRow) throw notFound("Student not found");
 
   const year = await getPool().query<{ id: string; name: string }>(
     academicYearId
-      ? 'SELECT id, name FROM academic_years WHERE school_id = $1 AND id = $2'
+      ? "SELECT id, name FROM academic_years WHERE school_id = $1 AND id = $2"
       : `SELECT id, name FROM academic_years WHERE school_id = $1 AND status = 'active' LIMIT 1`,
     academicYearId ? [schoolId, academicYearId] : [schoolId],
   );
   const yearRow = year.rows[0];
-  if (!yearRow) throw badRequest('No academic year is active');
+  if (!yearRow) throw badRequest("No academic year is active");
 
   const charges = await getPool().query<{
     description: string;
@@ -634,8 +746,8 @@ async function renderInvoice(
             ch.write_off_amount AS write_off, ch.due_on,
             COALESCE((
               SELECT sum(pa.amount) FROM payment_allocations pa
-              JOIN payments p ON p.id = pa.payment_id AND p.status = 'recorded'
-              WHERE pa.charge_id = ch.id
+              JOIN payments p ON p.id = pa.payment_id AND p.school_id = pa.school_id AND p.status = 'recorded'
+              WHERE pa.school_id = ch.school_id AND pa.charge_id = ch.id
             ), 0)::text AS paid
      FROM student_charges ch
      WHERE ch.school_id = $1 AND ch.student_id = $2 AND ch.academic_year_id = $3
@@ -648,7 +760,9 @@ async function renderInvoice(
   const rows = charges.rows
     .map((charge) => {
       const net = round(
-        toNumber(charge.amount) - toNumber(charge.concession) - toNumber(charge.write_off),
+        toNumber(charge.amount) -
+          toNumber(charge.concession) -
+          toNumber(charge.write_off),
       );
       const paid = Math.min(net, toNumber(charge.paid));
       total = round(total + net);
@@ -659,18 +773,33 @@ async function renderInvoice(
         round(net - paid),
       )}</td></tr>`;
     })
-    .join('');
+    .join("");
 
   return printableDocument({
     title: `Fee invoice · ${escapeHtml(studentRow.admission_number)}`,
     school: school.rows[0],
-    heading: 'Fee invoice',
+    heading: "Fee invoice",
     meta: [
-      ['Student', fullName(studentRow.first_name, studentRow.middle_name, studentRow.last_name)],
-      ['Admission no.', studentRow.admission_number],
-      ['Class', [studentRow.class_name, studentRow.section_name].filter(Boolean).join(' / ')],
-      ['Academic year', yearRow.name],
-      ['Invoice', `INV-${yearRow.name.replace(/\s+/g, '-')}-${studentRow.admission_number}`],
+      [
+        "Student",
+        fullName(
+          studentRow.first_name,
+          studentRow.middle_name,
+          studentRow.last_name,
+        ),
+      ],
+      ["Admission no.", studentRow.admission_number],
+      [
+        "Class",
+        [studentRow.class_name, studentRow.section_name]
+          .filter(Boolean)
+          .join(" / "),
+      ],
+      ["Academic year", yearRow.name],
+      [
+        "Invoice",
+        `INV-${yearRow.name.replace(/\s+/g, "-")}-${studentRow.admission_number}`,
+      ],
     ],
     body: `
       <table>
@@ -683,12 +812,18 @@ async function renderInvoice(
   });
 }
 
-async function renderReceipt(schoolId: string, paymentId: string): Promise<string> {
-  const school = await getPool().query<{ name: string; code: string; address: string | null }>(
-    'SELECT name, code, NULL::text AS address FROM schools WHERE id = $1',
-    [schoolId],
-  );
-  if (!school.rows[0]) throw notFound('School not found');
+async function renderReceipt(
+  schoolId: string,
+  paymentId: string,
+): Promise<string> {
+  const school = await getPool().query<{
+    name: string;
+    code: string;
+    address: string | null;
+  }>("SELECT name, code, NULL::text AS address FROM schools WHERE id = $1", [
+    schoolId,
+  ]);
+  if (!school.rows[0]) throw notFound("School not found");
   const payment = await getPool().query<{
     receipt_number: string;
     amount: string;
@@ -696,6 +831,7 @@ async function renderReceipt(schoolId: string, paymentId: string): Promise<strin
     reference: string | null;
     paid_on: string;
     status: string;
+    academic_year_name: string;
     student_first: string;
     student_middle: string | null;
     student_last: string | null;
@@ -703,61 +839,91 @@ async function renderReceipt(schoolId: string, paymentId: string): Promise<strin
     recorded_by: string | null;
   }>(
     `SELECT p.receipt_number, p.amount, p.method, p.reference, p.paid_on, p.status,
+            y.name AS academic_year_name,
             st.first_name AS student_first, st.middle_name AS student_middle,
             st.last_name AS student_last, st.admission_number,
             u.display_name AS recorded_by
      FROM payments p
+     JOIN academic_years y ON y.id = p.academic_year_id AND y.school_id = p.school_id
      JOIN students st ON st.id = p.student_id AND st.school_id = p.school_id
      LEFT JOIN users u ON u.id = p.recorded_by
      WHERE p.school_id = $1 AND p.id = $2`,
     [schoolId, paymentId],
   );
   const row = payment.rows[0];
-  if (!row) throw notFound('Payment not found');
+  if (!row) throw notFound("Payment not found");
 
-  const allocations = await getPool().query<{ description: string; amount: string }>(
-    `SELECT ch.description, pa.amount
+  const allocations = await getPool().query<{
+    description: string;
+    amount: string;
+    charge_amount: string;
+    concession_amount: string;
+    write_off_amount: string;
+    paid_total: string;
+  }>(
+    `SELECT ch.description, pa.amount, ch.amount AS charge_amount,
+            ch.concession_amount, ch.write_off_amount,
+            COALESCE((SELECT sum(pa2.amount) FROM payment_allocations pa2
+              JOIN payments p2 ON p2.school_id=pa2.school_id AND p2.id=pa2.payment_id AND p2.status='recorded'
+              WHERE pa2.school_id=ch.school_id AND pa2.charge_id=ch.id),0)::text AS paid_total
      FROM payment_allocations pa
      JOIN student_charges ch ON ch.id = pa.charge_id AND ch.school_id = pa.school_id
      WHERE pa.school_id = $1 AND pa.payment_id = $2
      ORDER BY ch.description`,
     [schoolId, paymentId],
   );
+  const refunds = await getPool().query<{
+    amount: string;
+    status: string;
+    reason: string;
+  }>(
+    "SELECT amount, status, reason FROM refunds WHERE school_id=$1 AND payment_id=$2 ORDER BY requested_at",
+    [schoolId, paymentId],
+  );
 
   return printableDocument({
     title: `Receipt ${row.receipt_number}`,
     school: school.rows[0],
-    heading: 'Fee receipt',
+    heading: "Fee receipt",
     meta: [
       [
-        'Student',
+        "Student",
         fullName(row.student_first, row.student_middle, row.student_last),
       ],
-      ['Admission no.', row.admission_number],
-      ['Receipt no.', row.receipt_number],
-      ['Paid on', toIsoDate(row.paid_on)],
-      ['Method', row.method.replace(/_/g, ' ')],
-      ['Status', row.status],
-      ['Recorded by', row.recorded_by ?? '—'],
+      ["Admission no.", row.admission_number],
+      ["Receipt no.", row.receipt_number],
+      ["Academic year", row.academic_year_name],
+      ["Paid on", toIsoDate(row.paid_on)],
+      ["Method", row.method.replace(/_/g, " ")],
+      ["Status", row.status],
+      ["Recorded by", row.recorded_by ?? "—"],
     ],
     body: `
       <p class="amount">${formatMoney(toNumber(row.amount))}</p>
-      ${
-        row.reference ? `<p>Reference: ${escapeHtml(row.reference)}</p>` : ''
-      }
-      <table>
-        <thead><tr><th>Allocated to</th><th class="num">Amount</th></tr></thead>
+      ${row.reference ? `<p>Reference: ${escapeHtml(row.reference)}</p>` : ""}
+      <table class="receipt-breakdown">
+        <thead><tr><th>Fee charge</th><th class="num">This receipt</th><th class="num">Gross charge</th><th class="num">Concession</th><th class="num">Write-off</th><th class="num">Paid to date</th><th class="num">Balance after receipts</th></tr></thead>
         <tbody>${
           allocations.rows
-            .map(
-              (allocation) =>
-                `<tr><td>${escapeHtml(allocation.description)}</td><td class="num">${formatMoney(
-                  toNumber(allocation.amount),
-                )}</td></tr>`,
-            )
-            .join('') || '<tr><td colspan="2">Unallocated payment.</td></tr>'
+            .map((allocation) => {
+              const net =
+                toNumber(allocation.charge_amount) -
+                toNumber(allocation.concession_amount) -
+                toNumber(allocation.write_off_amount);
+              const balance = Math.max(
+                0,
+                net - toNumber(allocation.paid_total),
+              );
+              return `<tr><td>${escapeHtml(allocation.description)}</td><td class="num">${formatMoney(toNumber(allocation.amount))}</td><td class="num">${formatMoney(toNumber(allocation.charge_amount))}</td><td class="num">${formatMoney(toNumber(allocation.concession_amount))}</td><td class="num">${formatMoney(toNumber(allocation.write_off_amount))}</td><td class="num">${formatMoney(toNumber(allocation.paid_total))}</td><td class="num">${formatMoney(balance)}</td></tr>`;
+            })
+            .join("") || '<tr><td colspan="7">Unallocated payment.</td></tr>'
         }</tbody>
-      </table>`,
+      </table>
+      ${
+        refunds.rows.length
+          ? `<h2>Refunds linked to this receipt</h2><table><thead><tr><th>Status</th><th class="num">Amount</th><th>Reason</th></tr></thead><tbody>${refunds.rows.map((refund) => `<tr><td>${escapeHtml(refund.status)}</td><td class="num">${formatMoney(toNumber(refund.amount))}</td><td>${escapeHtml(refund.reason)}</td></tr>`).join("")}</tbody></table><p>Refunds are shown separately from fee-charge balances; the system does not automatically create a new fee charge for a refund.</p>`
+          : "<p>No refund requested against this receipt.</p>"
+      }`,
   });
 }
 
@@ -769,8 +935,11 @@ function printableDocument(input: {
   body: string;
 }): string {
   const meta = input.meta
-    .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`)
-    .join('');
+    .map(
+      ([label, value]) =>
+        `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`,
+    )
+    .join("");
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -793,6 +962,7 @@ function printableDocument(input: {
   .num { text-align: right; font-variant-numeric: tabular-nums; }
   .total, .amount { margin-top: 18px; font-size: 16px; font-weight: 700; }
   .amount { font-size: 28px; }
+  @media print { .receipt-breakdown th, .receipt-breakdown td { font-size: 10px; padding: 4px 3px; } }
   @media print { body { margin: 0; } }
 </style>
 </head>
@@ -800,7 +970,7 @@ function printableDocument(input: {
 <header>
   <h1>${escapeHtml(input.school.name)}</h1>
   <div class="school">${escapeHtml(input.school.code)}${
-    input.school.address ? ` · ${escapeHtml(input.school.address)}` : ''
+    input.school.address ? ` · ${escapeHtml(input.school.address)}` : ""
   }</div>
 </header>
 <h2>${input.heading}</h2>
@@ -813,17 +983,17 @@ ${input.body}
 
 function escapeHtml(value: string): string {
   return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function formatMoney(value: number): string {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);

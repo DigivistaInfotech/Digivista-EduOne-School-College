@@ -409,6 +409,36 @@ export const MODULE_CARDS: ModuleCardData[] = [
   },
 ];
 
+const UPCOMING_FEATURES = [
+  {
+    area: 'Notices & communication',
+    items: [
+      'Recipient preview and confirmation for class, section, student, parent, teacher and staff audiences.',
+      'Reusable templates, configurable approvals and maker-checker history.',
+      'Backend scheduling, automatic expiry and searchable archive.',
+      'Separate delivery, read and acknowledgement tracking with detailed reports and exports.',
+      'Live-data notice dashboard and channel-wise delivery logs; external channels only when configured.',
+    ],
+  },
+  {
+    area: 'Academic setup',
+    items: [
+      'Connected stream/division setup, class-subject mapping, electives and student subject allocation.',
+      'Practical/lab setup and subject-teacher allocation.',
+      'Academic structure import/export, year-to-year copy and transition checks.',
+      'Expanded academic dashboards and reports based on school records.',
+    ],
+  },
+  {
+    area: 'Exams, results & reporting',
+    items: [
+      'Marks submission, verification, correction approvals and result-lock history.',
+      'Configurable report-card templates, admit cards and controlled result publication.',
+      'Class, section, subject and year comparison reports with verified drill-down and export.',
+    ],
+  },
+];
+
 export function ModulesDirectoryPage(): ReactNode {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -433,7 +463,7 @@ export function ModulesDirectoryPage(): ReactNode {
       <PageHeader
         badge="Architecture Blueprint"
         title="30 Module Directory"
-        description="Comprehensive build specification for Udaan Valley International School (Demo). Nursery to XII, 1,200+ students. Fields, filters, workflows, and strict governance controls for all 30 system modules."
+        description="Module scope and workflow reference for the School ERP. Cards describe intended scope; check each linked screen for current availability."
         actions={
           <div className="flex items-center gap-2">
             <Link to="/pain-points">
@@ -451,6 +481,25 @@ export function ModulesDirectoryPage(): ReactNode {
           </div>
         }
       />
+
+      <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5" aria-labelledby="upcoming-features-title">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide text-amber-800">Upcoming · not live yet</span>
+          <span className="text-xs font-semibold text-slate-500">Captured from the uploaded School ERP and Notice documents</span>
+        </div>
+        <h2 id="upcoming-features-title" className="mt-2 text-lg font-bold text-[#182944]">Planned features to review before customer demos</h2>
+        <p className="mt-1 max-w-3xl text-sm text-slate-600">These are backlog reminders, not promises of current functionality or delivery dates. We’ll update this list as features are implemented and verified.</p>
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {UPCOMING_FEATURES.map((group) => (
+            <div key={group.area} className="rounded-xl border border-amber-100 bg-white p-4">
+              <h3 className="text-sm font-bold text-[#182944]">{group.area}</h3>
+              <ul className="mt-2 space-y-2 text-xs leading-relaxed text-slate-600">
+                {group.items.map((item) => <li key={item} className="flex gap-2"><span className="mt-0.5 text-amber-600" aria-hidden="true">•</span><span>{item}</span></li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* Filter and search bar */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
@@ -573,7 +622,7 @@ export function ModulesDirectoryPage(): ReactNode {
             {/* Action footer */}
             <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
               <span className="text-[10px] text-slate-400 font-semibold">
-                Status: Verified in Build
+                Module map · availability varies
               </span>
               <Link to={mod.route}>
                 <Button variant="secondary" size="sm" className="!text-xs !py-1 !min-h-[34px]">
